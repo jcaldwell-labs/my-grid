@@ -72,7 +72,10 @@ desktop.ini
 demo/output/
 *.gif
 *.mp4
-*.tape
+
+# VHS tape files (ignore generated, keep source scripts)
+# *.tape is ignored by default, but demo/*.tape are source files
+!demo/*.tape
 
 # User config (keep templates)
 ~/.mygrid/

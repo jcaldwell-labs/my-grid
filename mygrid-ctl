@@ -11,6 +11,11 @@ Examples:
     mygrid-ctl status
     ls -la | mygrid-ctl box 0 0 80 25
     cat commands.txt | mygrid-ctl batch -
+
+    # External tool integration (requires boxes/figlet)
+    echo "Hello" | mygrid-ctl pipe 10 5 --filter "boxes -d stone"
+    mygrid-ctl stamp 20 10 banner "WELCOME"
+    mygrid-ctl stamp 0 0 ansi "Server Status"
 """
 
 import argparse
@@ -302,6 +307,144 @@ def cmd_batch(args: argparse.Namespace) -> int:
     return print_responses(responses, args.json)
 
 
+def cmd_pipe(args: argparse.Namespace) -> int:
+    """
+    Pipe stdin through optional transformer, then write to canvas.
+
+    Examples:
+        echo "Hello" | mygrid-ctl pipe 10 5
+        echo "Hello" | mygrid-ctl pipe 10 5 --filter "boxes -d stone"
+        ls -la | mygrid-ctl pipe 0 0 --filter "head -10"
+        date | mygrid-ctl pipe 50 0 --filter "boxes -d ansi"
+    """
+    import subprocess
+
+    # Read stdin
+    if sys.stdin.isatty():
+        print("Error: pipe command requires piped input", file=sys.stderr)
+        print("Example: echo 'Hello' | mygrid-ctl pipe 10 5 --filter 'boxes -d stone'", file=sys.stderr)
+        return 1
+
+    content = sys.stdin.read()
+
+    # Apply filter if specified
+    if args.filter:
+        try:
+            # Run filter command
+            result = subprocess.run(
+                args.filter,
+                shell=True,
+                input=content,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0:
+                print(f"Filter error: {result.stderr}", file=sys.stderr)
+                return 1
+            content = result.stdout
+        except subprocess.TimeoutExpired:
+            print("Filter command timed out", file=sys.stderr)
+            return 1
+        except Exception as e:
+            print(f"Filter error: {e}", file=sys.stderr)
+            return 1
+
+    # Build commands to write each line
+    lines = content.split('\n')
+    commands = []
+
+    for i, line in enumerate(lines):
+        if line:  # Skip empty lines unless preserving layout
+            commands.append(f":goto {args.x} {args.y + i}")
+            commands.append(f":text {line}")
+        elif args.preserve_empty:
+            # Just move cursor for empty lines (preserves spacing)
+            pass
+
+    if not commands:
+        print("No content to write")
+        return 0
+
+    responses = send_tcp(args.host, args.port, commands, args.timeout)
+    return print_responses(responses, args.json)
+
+
+def cmd_stamp(args: argparse.Namespace) -> int:
+    """
+    Stamp pre-defined ASCII art or filtered content at position.
+
+    Built-in stamps:
+        banner TEXT    - Large ASCII banner (requires figlet)
+        box TEXT       - Text in box (requires boxes)
+        ansi TEXT      - Text in ANSI box
+        stone TEXT     - Text in stone box
+
+    Examples:
+        mygrid-ctl stamp 10 5 banner "HELLO"
+        mygrid-ctl stamp 0 0 box "System Status"
+        mygrid-ctl stamp 20 10 ansi "API Gateway"
+    """
+    import subprocess
+
+    stamp_type = args.stamp_type.lower()
+    text = ' '.join(args.text)
+
+    # Map stamp types to commands
+    stamp_commands = {
+        'banner': f'echo "{text}" | figlet',
+        'box': f'echo "{text}" | boxes',
+        'ansi': f'echo "{text}" | boxes -d ansi',
+        'stone': f'echo "{text}" | boxes -d stone',
+        'parchment': f'echo "{text}" | boxes -d parchment',
+        'diamonds': f'echo "{text}" | boxes -d diamonds',
+        'spring': f'echo "{text}" | boxes -d spring',
+        'simple': f'echo "{text}" | boxes -d simple',
+        'c-cmt': f'echo "{text}" | boxes -d c-cmt',
+        'html': f'echo "{text}" | boxes -d html',
+    }
+
+    if stamp_type not in stamp_commands:
+        print(f"Unknown stamp type: {stamp_type}", file=sys.stderr)
+        print(f"Available: {', '.join(stamp_commands.keys())}", file=sys.stderr)
+        return 1
+
+    try:
+        result = subprocess.run(
+            stamp_commands[stamp_type],
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode != 0:
+            print(f"Stamp error: {result.stderr}", file=sys.stderr)
+            return 1
+        content = result.stdout
+    except FileNotFoundError:
+        print(f"Required tool not found for stamp type '{stamp_type}'", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Stamp error: {e}", file=sys.stderr)
+        return 1
+
+    # Build commands
+    lines = content.split('\n')
+    commands = []
+
+    for i, line in enumerate(lines):
+        if line:
+            commands.append(f":goto {args.x} {args.y + i}")
+            commands.append(f":text {line}")
+
+    if not commands:
+        print("No content generated")
+        return 0
+
+    responses = send_tcp(args.host, args.port, commands, args.timeout)
+    return print_responses(responses, args.json)
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -309,12 +452,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s exec ":rect 10 5"       Execute command
-  %(prog)s text "Hello World"     Write text at cursor
-  %(prog)s goto 50 25             Move cursor
-  %(prog)s status                 Get current state
-  ls -la | %(prog)s box 0 0 80 25   Capture output in box
-  cat cmds.txt | %(prog)s batch -   Run batch commands
+  %(prog)s exec ":rect 10 5"              Execute command
+  %(prog)s text "Hello World"             Write text at cursor
+  %(prog)s goto 50 25                     Move cursor
+  %(prog)s status                         Get current state
+  ls -la | %(prog)s box 0 0 80 25         Capture output in box
+  cat cmds.txt | %(prog)s batch -         Run batch commands
+  echo "Hi" | %(prog)s pipe 10 5 -f "boxes -d stone"  Pipe through boxes
+  %(prog)s stamp 20 10 banner "TITLE"     Create ASCII banner
+  %(prog)s stamp 0 0 ansi "API Gateway"   Create ANSI-style box
 """
     )
 
@@ -405,6 +551,22 @@ Examples:
     p_batch = subparsers.add_parser('batch', help='Execute batch of commands')
     p_batch.add_argument('file', help='Command file (- for stdin)')
     p_batch.set_defaults(func=cmd_batch)
+
+    # pipe command
+    p_pipe = subparsers.add_parser('pipe', help='Pipe stdin through filter to canvas')
+    p_pipe.add_argument('x', type=int, help='Start X position')
+    p_pipe.add_argument('y', type=int, help='Start Y position')
+    p_pipe.add_argument('--filter', '-f', help='Shell command to filter through (e.g., "boxes -d stone")')
+    p_pipe.add_argument('--preserve-empty', action='store_true', help='Preserve empty lines')
+    p_pipe.set_defaults(func=cmd_pipe)
+
+    # stamp command
+    p_stamp = subparsers.add_parser('stamp', help='Stamp ASCII art at position')
+    p_stamp.add_argument('x', type=int, help='X position')
+    p_stamp.add_argument('y', type=int, help='Y position')
+    p_stamp.add_argument('stamp_type', help='Stamp type: banner, box, ansi, stone, parchment, diamonds, spring, simple, c-cmt, html')
+    p_stamp.add_argument('text', nargs='+', help='Text for stamp')
+    p_stamp.set_defaults(func=cmd_stamp)
 
     args = parser.parse_args()
 
