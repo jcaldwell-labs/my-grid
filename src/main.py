@@ -7,6 +7,8 @@ Main entry point that wires together all components.
 
 import argparse
 import curses
+import json
+import logging
 import sys
 from pathlib import Path
 
@@ -16,6 +18,10 @@ from renderer import Renderer, GridSettings, create_status_line
 from input import InputHandler, Action, InputEvent
 from modes import Mode, ModeConfig, ModeStateMachine, ModeResult
 from project import Project, add_recent_project, suggest_filename
+from command_queue import CommandQueue, CommandResponse, send_response
+from server import APIServer, ServerConfig
+
+logger = logging.getLogger(__name__)
 
 
 class Application:
@@ -25,7 +31,7 @@ class Application:
     Coordinates all components and runs the main loop.
     """
 
-    def __init__(self, stdscr: "curses.window"):
+    def __init__(self, stdscr: "curses.window", server_config: ServerConfig | None = None):
         self.stdscr = stdscr
 
         # Core components
@@ -39,6 +45,11 @@ class Application:
         )
         self.project = Project()
 
+        # API server components
+        self.command_queue = CommandQueue()
+        self.api_server: APIServer | None = None
+        self._server_config = server_config
+
         # Status message (temporary display)
         self._status_message: str | None = None
         self._status_message_frames: int = 0
@@ -48,6 +59,10 @@ class Application:
 
         # Register additional commands
         self._register_commands()
+
+        # Start API server if configured
+        if server_config:
+            self._start_server(server_config)
 
     def _update_viewport_size(self) -> None:
         """Update viewport to match terminal size."""
@@ -68,6 +83,19 @@ class Application:
         self.state_machine.register_command("text", self._cmd_text)
         self.state_machine.register_command("grid", self._cmd_grid)
         self.state_machine.register_command("ydir", self._cmd_ydir)
+        self.state_machine.register_command("status", self._cmd_status)
+
+    def _start_server(self, config: ServerConfig) -> None:
+        """Start the API server."""
+        self.api_server = APIServer(self.command_queue)
+        self.api_server.start(config)
+        logger.info(f"API server started on port {config.tcp_port}")
+
+    def _stop_server(self) -> None:
+        """Stop the API server."""
+        if self.api_server:
+            self.api_server.stop()
+            self.api_server = None
 
     def load_file(self, filepath: str | Path) -> None:
         """Load a project or text file."""
@@ -168,73 +196,141 @@ class Application:
         """Main application loop."""
         running = True
 
-        while running:
-            # Handle terminal resize
-            self._update_viewport_size()
+        # Enable non-blocking input if server is running
+        if self._server_config:
+            self.stdscr.timeout(50)  # 50ms timeout = ~20 FPS
 
-            # Render frame
-            status = self._get_status_line()
-            self.renderer.render(self.canvas, self.viewport, status)
+        try:
+            while running:
+                # Process external commands from API server
+                if self._server_config:
+                    self._process_external_commands()
 
-            # Get input
-            key = self.renderer.get_input()
+                # Handle terminal resize
+                self._update_viewport_size()
 
-            # Handle resize event
-            if key == curses.KEY_RESIZE:
-                continue
+                # Render frame
+                status = self._get_status_line()
+                self.renderer.render(self.canvas, self.viewport, status)
 
-            # Convert curses key to action
-            event = self._curses_key_to_event(key)
-            if not event:
-                continue
+                # Get input (may timeout if server mode)
+                key = self.renderer.get_input()
 
-            # Process through state machine
-            result = self.state_machine.process(event)
+                # Handle timeout (no input) - just continue loop
+                if key == -1:
+                    continue
 
-            # Handle result
-            if result.quit:
-                if self._confirm_quit():
-                    running = False
-                continue
+                # Handle resize event
+                if key == curses.KEY_RESIZE:
+                    continue
 
-            if result.message:
-                self._show_message(result.message)
+                # Convert curses key to action
+                event = self._curses_key_to_event(key)
+                if not event:
+                    continue
 
-            if result.command:
-                self._handle_command(result.command)
+                # Process through state machine
+                result = self.state_machine.process(event)
 
-            # Handle grid toggles (not mode-dependent)
-            if event.action == Action.TOGGLE_GRID_MAJOR:
-                self.renderer.grid.show_major_lines = not self.renderer.grid.show_major_lines
-                self._show_message(
-                    f"Major grid: {'ON' if self.renderer.grid.show_major_lines else 'OFF'}"
+                # Handle result
+                if result.quit:
+                    if self._confirm_quit():
+                        running = False
+                    continue
+
+                if result.message:
+                    self._show_message(result.message)
+
+                if result.command:
+                    self._handle_command(result.command)
+
+                # Handle grid toggles (not mode-dependent)
+                if event.action == Action.TOGGLE_GRID_MAJOR:
+                    self.renderer.grid.show_major_lines = not self.renderer.grid.show_major_lines
+                    self._show_message(
+                        f"Major grid: {'ON' if self.renderer.grid.show_major_lines else 'OFF'}"
+                    )
+                elif event.action == Action.TOGGLE_GRID_MINOR:
+                    self.renderer.grid.show_minor_lines = not self.renderer.grid.show_minor_lines
+                    self._show_message(
+                        f"Minor grid: {'ON' if self.renderer.grid.show_minor_lines else 'OFF'}"
+                    )
+                elif event.action == Action.TOGGLE_GRID_ORIGIN:
+                    self.renderer.grid.show_origin = not self.renderer.grid.show_origin
+                    self._show_message(
+                        f"Origin marker: {'ON' if self.renderer.grid.show_origin else 'OFF'}"
+                    )
+
+                # Handle file operations
+                if event.action == Action.SAVE:
+                    self._do_save()
+                elif event.action == Action.SAVE_AS:
+                    self._do_save_as()
+                elif event.action == Action.OPEN:
+                    self._do_open()
+                elif event.action == Action.NEW:
+                    self._do_new()
+                elif event.action == Action.HELP:
+                    self._show_help()
+
+                # Mark dirty on canvas changes in edit mode
+                if self.state_machine.mode == Mode.EDIT and event.char:
+                    self.project.mark_dirty()
+        finally:
+            # Clean up server on exit
+            self._stop_server()
+
+    def _process_external_commands(self) -> None:
+        """Process commands from the external API queue."""
+        # Process up to 10 commands per frame to prevent flooding
+        for _ in range(10):
+            ext_cmd = self.command_queue.get_nowait()
+            if not ext_cmd:
+                break
+
+            try:
+                result = self._execute_external_command(ext_cmd.command)
+                response = CommandResponse(
+                    status="ok",
+                    message=result.message or "OK",
+                    data=result.data if hasattr(result, 'data') else None
                 )
-            elif event.action == Action.TOGGLE_GRID_MINOR:
-                self.renderer.grid.show_minor_lines = not self.renderer.grid.show_minor_lines
-                self._show_message(
-                    f"Minor grid: {'ON' if self.renderer.grid.show_minor_lines else 'OFF'}"
-                )
-            elif event.action == Action.TOGGLE_GRID_ORIGIN:
-                self.renderer.grid.show_origin = not self.renderer.grid.show_origin
-                self._show_message(
-                    f"Origin marker: {'ON' if self.renderer.grid.show_origin else 'OFF'}"
-                )
+            except Exception as e:
+                response = CommandResponse(status="error", message=str(e))
 
-            # Handle file operations
-            if event.action == Action.SAVE:
-                self._do_save()
-            elif event.action == Action.SAVE_AS:
-                self._do_save_as()
-            elif event.action == Action.OPEN:
-                self._do_open()
-            elif event.action == Action.NEW:
-                self._do_new()
-            elif event.action == Action.HELP:
-                self._show_help()
+            # Send response back if requested
+            send_response(ext_cmd, response)
 
-            # Mark dirty on canvas changes in edit mode
-            if self.state_machine.mode == Mode.EDIT and event.char:
-                self.project.mark_dirty()
+    def _execute_external_command(self, command: str) -> ModeResult:
+        """Execute a command string from external source."""
+        # Strip leading : or / if present
+        if command.startswith(':') or command.startswith('/'):
+            command = command[1:]
+
+        # Parse command and args
+        parts = command.split()
+        if not parts:
+            return ModeResult(message="Empty command")
+
+        cmd_name = parts[0].lower()
+        args = parts[1:]
+
+        # Look up command handler
+        handler = self.state_machine.commands.get(cmd_name)
+        if handler:
+            return handler(args)
+
+        # Try built-in commands
+        if cmd_name in ("quit", "q"):
+            return ModeResult(message="Quit not allowed via API")
+        elif cmd_name in ("goto", "g"):
+            return self.state_machine._cmd_goto(args)
+        elif cmd_name == "clear":
+            return self.state_machine._cmd_clear(args)
+        elif cmd_name == "origin":
+            return self.state_machine._cmd_origin(args)
+
+        return ModeResult(message=f"Unknown command: {cmd_name}")
 
     def _curses_key_to_event(self, key: int) -> InputEvent | None:
         """Convert curses key code to InputEvent."""
@@ -559,10 +655,38 @@ class Application:
         else:
             return ModeResult(message="Usage: ydir up|down")
 
+    def _cmd_status(self, args: list[str]) -> ModeResult:
+        """Return current state as JSON."""
+        state = {
+            "cursor": {"x": self.viewport.cursor.x, "y": self.viewport.cursor.y},
+            "viewport": {
+                "x": self.viewport.x,
+                "y": self.viewport.y,
+                "width": self.viewport.width,
+                "height": self.viewport.height
+            },
+            "mode": self.state_machine.mode_name,
+            "cells": self.canvas.cell_count,
+            "dirty": self.project.dirty,
+            "file": self.project.filename,
+            "server": self.api_server.status.tcp_port if self.api_server else None
+        }
+        return ModeResult(message=json.dumps(state))
+
 
 def main(stdscr: "curses.window", args: argparse.Namespace) -> None:
     """Main entry point called by curses wrapper."""
-    app = Application(stdscr)
+    # Build server config if enabled
+    server_config = None
+    if args.server:
+        server_config = ServerConfig(
+            tcp_enabled=not args.no_tcp,
+            tcp_port=args.port,
+            fifo_enabled=not args.no_fifo,
+            fifo_path=args.fifo or "/tmp/mygrid.fifo"
+        )
+
+    app = Application(stdscr, server_config=server_config)
 
     # Load file if specified
     if args.file:
@@ -581,12 +705,19 @@ Examples:
   %(prog)s                    Start with empty canvas
   %(prog)s project.json       Open existing project
   %(prog)s drawing.txt        Import text file
+  %(prog)s --server           Start with API server enabled
+  %(prog)s --server --port 9000  Use custom port
 
 Keys:
   wasd/arrows  Move cursor      i  Enter edit mode
   p            Toggle pan mode  :  Enter command mode
   g/G          Toggle grid      q  Quit
   Ctrl+S       Save             F1 Help
+
+API Server:
+  When --server is enabled, external processes can send commands
+  via TCP (default port 8765) or FIFO (/tmp/mygrid.fifo on Unix).
+  Use mygrid-ctl to send commands from another terminal.
 """
     )
     parser.add_argument(
@@ -597,8 +728,38 @@ Keys:
     parser.add_argument(
         '--version',
         action='version',
-        version='%(prog)s 0.1.0'
+        version='%(prog)s 0.2.0'
     )
+
+    # Server options
+    server_group = parser.add_argument_group('API Server')
+    server_group.add_argument(
+        '--server',
+        action='store_true',
+        help='Enable API server for external commands'
+    )
+    server_group.add_argument(
+        '--port',
+        type=int,
+        default=8765,
+        help='TCP port for API server (default: 8765)'
+    )
+    server_group.add_argument(
+        '--no-tcp',
+        action='store_true',
+        help='Disable TCP listener'
+    )
+    server_group.add_argument(
+        '--fifo',
+        metavar='PATH',
+        help='FIFO path for Unix (default: /tmp/mygrid.fifo)'
+    )
+    server_group.add_argument(
+        '--no-fifo',
+        action='store_true',
+        help='Disable FIFO listener'
+    )
+
     return parser.parse_args()
 
 

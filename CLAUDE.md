@@ -185,3 +185,81 @@ python tests/test_canvas.py
 # Specific test
 python -m pytest tests/test_modes.py::TestModeStateMachine::test_edit_mode_typing -v
 ```
+
+---
+
+## API Server (Headless Control)
+
+my-grid can be controlled by external processes via TCP or Unix FIFO.
+
+### Enable Server Mode
+
+```bash
+# Start with API server enabled
+python mygrid.py --server
+
+# Custom port
+python mygrid.py --server --port 9000
+
+# Disable FIFO (TCP only)
+python mygrid.py --server --no-fifo
+```
+
+### Using mygrid-ctl
+
+Control a running my-grid instance from another terminal:
+
+```bash
+# Basic commands
+python mygrid-ctl text "Hello World"    # Write text at cursor
+python mygrid-ctl rect 20 10            # Draw 20x10 rectangle
+python mygrid-ctl goto 50 25            # Move cursor
+python mygrid-ctl status                # Get current state (JSON)
+python mygrid-ctl clear                 # Clear canvas
+
+# Execute any command
+python mygrid-ctl exec ":rect 10 5 #"
+
+# Pipe stdin into a box
+ls -la | python mygrid-ctl box 0 0 80 25
+
+# Pipe stdin at position
+git status | python mygrid-ctl region 10 5
+
+# Batch commands from file
+cat commands.txt | python mygrid-ctl batch -
+```
+
+### TCP Protocol
+
+- **Port**: 8765 (default)
+- **Format**: Newline-delimited commands, JSON responses
+
+```bash
+# Using netcat
+echo ':rect 10 5' | nc localhost 8765
+
+# Response format
+{"status": "ok", "message": "Drew 10x5 rectangle"}
+```
+
+### Unix FIFO (Linux/WSL/macOS)
+
+```bash
+# Fire-and-forget commands
+echo ':rect 10 5' > /tmp/mygrid.fifo
+echo ':text Hello' > /tmp/mygrid.fifo
+```
+
+### Cross-Platform (Windows + WSL)
+
+When running my-grid in WSL with `--server`, you can send commands from Windows via TCP:
+
+```powershell
+# From Windows PowerShell
+$client = New-Object System.Net.Sockets.TcpClient("localhost", 8765)
+$stream = $client.GetStream()
+$writer = New-Object System.IO.StreamWriter($stream)
+$writer.WriteLine(":text Hello from Windows")
+$writer.Flush()
+```

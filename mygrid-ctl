@@ -1,0 +1,419 @@
+#!/usr/bin/env python3
+"""
+mygrid-ctl - Control a running my-grid instance via API.
+
+Send commands to my-grid via TCP socket or Unix FIFO.
+
+Examples:
+    mygrid-ctl exec ":rect 10 5"
+    mygrid-ctl text "Hello World"
+    mygrid-ctl goto 50 25
+    mygrid-ctl status
+    ls -la | mygrid-ctl box 0 0 80 25
+    cat commands.txt | mygrid-ctl batch -
+"""
+
+import argparse
+import json
+import socket
+import sys
+from typing import Any
+
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8765
+DEFAULT_TIMEOUT = 5.0
+
+
+def send_tcp(host: str, port: int, commands: list[str], timeout: float = DEFAULT_TIMEOUT) -> list[dict]:
+    """
+    Send commands via TCP and return responses.
+
+    Args:
+        host: TCP host
+        port: TCP port
+        commands: List of command strings
+        timeout: Socket timeout in seconds
+
+    Returns:
+        List of response dictionaries
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            s.connect((host, port))
+
+            # Send commands (newline-delimited)
+            data = '\n'.join(commands) + '\n'
+            s.sendall(data.encode('utf-8'))
+            s.shutdown(socket.SHUT_WR)
+
+            # Receive response
+            response_data = b""
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                response_data += chunk
+
+            # Parse JSON responses
+            responses = []
+            for line in response_data.decode('utf-8').strip().split('\n'):
+                if line:
+                    try:
+                        responses.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        responses.append({"status": "error", "message": f"Invalid response: {line}"})
+
+            return responses
+
+    except socket.timeout:
+        return [{"status": "error", "message": "Connection timeout"}]
+    except ConnectionRefusedError:
+        return [{"status": "error", "message": f"Connection refused - is my-grid running with --server on port {port}?"}]
+    except Exception as e:
+        return [{"status": "error", "message": str(e)}]
+
+
+def send_fifo(fifo_path: str, commands: list[str]) -> list[dict]:
+    """
+    Send commands via Unix FIFO (fire-and-forget).
+
+    Args:
+        fifo_path: Path to FIFO
+        commands: List of command strings
+
+    Returns:
+        List of pseudo-responses (FIFO has no response)
+    """
+    try:
+        with open(fifo_path, 'w') as fifo:
+            for cmd in commands:
+                fifo.write(cmd + '\n')
+                fifo.flush()
+        return [{"status": "ok", "message": f"Sent {len(commands)} command(s) via FIFO"}]
+    except FileNotFoundError:
+        return [{"status": "error", "message": f"FIFO not found: {fifo_path}"}]
+    except Exception as e:
+        return [{"status": "error", "message": str(e)}]
+
+
+def print_responses(responses: list[dict], json_output: bool = False) -> int:
+    """
+    Print responses and return exit code.
+
+    Args:
+        responses: List of response dictionaries
+        json_output: If True, output as JSON
+
+    Returns:
+        0 if all succeeded, 1 if any failed
+    """
+    exit_code = 0
+
+    for resp in responses:
+        if json_output:
+            print(json.dumps(resp))
+        else:
+            status = resp.get("status", "unknown")
+            message = resp.get("message", "")
+
+            if status == "ok":
+                if message:
+                    print(message)
+            else:
+                print(f"Error: {message}", file=sys.stderr)
+                exit_code = 1
+
+    return exit_code
+
+
+# Command handlers
+
+def cmd_exec(args: argparse.Namespace) -> int:
+    """Execute arbitrary command."""
+    command = args.command
+    if not command.startswith(':') and not command.startswith('/'):
+        command = ':' + command
+
+    responses = send_tcp(args.host, args.port, [command], args.timeout)
+    return print_responses(responses, args.json)
+
+
+def cmd_text(args: argparse.Namespace) -> int:
+    """Write text at cursor."""
+    text = ' '.join(args.text)
+    responses = send_tcp(args.host, args.port, [f":text {text}"], args.timeout)
+    return print_responses(responses, args.json)
+
+
+def cmd_rect(args: argparse.Namespace) -> int:
+    """Draw rectangle at cursor."""
+    cmd = f":rect {args.width} {args.height}"
+    if args.char:
+        cmd += f" {args.char}"
+    responses = send_tcp(args.host, args.port, [cmd], args.timeout)
+    return print_responses(responses, args.json)
+
+
+def cmd_line(args: argparse.Namespace) -> int:
+    """Draw line from cursor."""
+    cmd = f":line {args.x2} {args.y2}"
+    if args.char:
+        cmd += f" {args.char}"
+    responses = send_tcp(args.host, args.port, [cmd], args.timeout)
+    return print_responses(responses, args.json)
+
+
+def cmd_goto(args: argparse.Namespace) -> int:
+    """Move cursor to position."""
+    responses = send_tcp(args.host, args.port, [f":goto {args.x} {args.y}"], args.timeout)
+    return print_responses(responses, args.json)
+
+
+def cmd_clear(args: argparse.Namespace) -> int:
+    """Clear the canvas."""
+    responses = send_tcp(args.host, args.port, [":clear"], args.timeout)
+    return print_responses(responses, args.json)
+
+
+def cmd_save(args: argparse.Namespace) -> int:
+    """Save the project."""
+    cmd = ":save"
+    if args.file:
+        cmd = f":saveas {args.file}"
+    responses = send_tcp(args.host, args.port, [cmd], args.timeout)
+    return print_responses(responses, args.json)
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    """Get current status."""
+    responses = send_tcp(args.host, args.port, [":status"], args.timeout)
+
+    if args.json:
+        return print_responses(responses, json_output=True)
+
+    # Pretty-print status
+    for resp in responses:
+        if resp.get("status") == "ok":
+            try:
+                state = json.loads(resp.get("message", "{}"))
+                print(f"Cursor:   ({state['cursor']['x']}, {state['cursor']['y']})")
+                print(f"Viewport: ({state['viewport']['x']}, {state['viewport']['y']}) "
+                      f"{state['viewport']['width']}x{state['viewport']['height']}")
+                print(f"Mode:     {state['mode']}")
+                print(f"Cells:    {state['cells']}")
+                print(f"File:     {state['file']}{' [modified]' if state['dirty'] else ''}")
+                if state.get('server'):
+                    print(f"Server:   port {state['server']}")
+            except (json.JSONDecodeError, KeyError):
+                print(resp.get("message", ""))
+        else:
+            print(f"Error: {resp.get('message', '')}", file=sys.stderr)
+            return 1
+
+    return 0
+
+
+def cmd_box(args: argparse.Namespace) -> int:
+    """Create box and fill with stdin content."""
+    # Read stdin
+    if sys.stdin.isatty():
+        print("Error: box command requires piped input", file=sys.stderr)
+        print("Example: ls -la | mygrid-ctl box 0 0 80 25", file=sys.stderr)
+        return 1
+
+    lines = sys.stdin.read().split('\n')
+
+    # Build commands
+    commands = [
+        f":goto {args.x} {args.y}",
+        f":rect {args.width} {args.height}",
+    ]
+
+    # Fill box with content (leave 1-char border)
+    max_lines = args.height - 2
+    max_width = args.width - 2
+
+    for i, line in enumerate(lines[:max_lines]):
+        truncated = line[:max_width]
+        if truncated:
+            commands.append(f":goto {args.x + 1} {args.y + 1 + i}")
+            commands.append(f":text {truncated}")
+
+    responses = send_tcp(args.host, args.port, commands, args.timeout)
+    return print_responses(responses, args.json)
+
+
+def cmd_region(args: argparse.Namespace) -> int:
+    """Write stdin content starting at position."""
+    # Read stdin
+    if sys.stdin.isatty():
+        print("Error: region command requires piped input", file=sys.stderr)
+        print("Example: git status | mygrid-ctl region 10 5", file=sys.stderr)
+        return 1
+
+    lines = sys.stdin.read().split('\n')
+
+    # Build commands
+    commands = []
+    for i, line in enumerate(lines):
+        if line:
+            commands.append(f":goto {args.x} {args.y + i}")
+            commands.append(f":text {line}")
+
+    if not commands:
+        print("No content to write")
+        return 0
+
+    responses = send_tcp(args.host, args.port, commands, args.timeout)
+    return print_responses(responses, args.json)
+
+
+def cmd_batch(args: argparse.Namespace) -> int:
+    """Execute batch of commands from file or stdin."""
+    # Read commands
+    if args.file == '-':
+        if sys.stdin.isatty():
+            print("Error: batch - requires piped input", file=sys.stderr)
+            return 1
+        content = sys.stdin.read()
+    else:
+        try:
+            with open(args.file, 'r') as f:
+                content = f.read()
+        except FileNotFoundError:
+            print(f"Error: File not found: {args.file}", file=sys.stderr)
+            return 1
+
+    # Parse commands (one per line, skip empty/comments)
+    commands = []
+    for line in content.split('\n'):
+        line = line.strip()
+        if line and not line.startswith('#'):
+            commands.append(line)
+
+    if not commands:
+        print("No commands to execute")
+        return 0
+
+    print(f"Executing {len(commands)} command(s)...")
+    responses = send_tcp(args.host, args.port, commands, args.timeout)
+    return print_responses(responses, args.json)
+
+
+def main():
+    """Main entry point."""
+    parser = argparse.ArgumentParser(
+        description="Control a running my-grid instance",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s exec ":rect 10 5"       Execute command
+  %(prog)s text "Hello World"     Write text at cursor
+  %(prog)s goto 50 25             Move cursor
+  %(prog)s status                 Get current state
+  ls -la | %(prog)s box 0 0 80 25   Capture output in box
+  cat cmds.txt | %(prog)s batch -   Run batch commands
+"""
+    )
+
+    # Global options
+    parser.add_argument(
+        '--host',
+        default=DEFAULT_HOST,
+        help=f'TCP host (default: {DEFAULT_HOST})'
+    )
+    parser.add_argument(
+        '--port', '-p',
+        type=int,
+        default=DEFAULT_PORT,
+        help=f'TCP port (default: {DEFAULT_PORT})'
+    )
+    parser.add_argument(
+        '--timeout', '-t',
+        type=float,
+        default=DEFAULT_TIMEOUT,
+        help=f'Timeout in seconds (default: {DEFAULT_TIMEOUT})'
+    )
+    parser.add_argument(
+        '--json', '-j',
+        action='store_true',
+        help='Output responses as JSON'
+    )
+
+    subparsers = parser.add_subparsers(dest='command_name', help='Available commands')
+
+    # exec command
+    p_exec = subparsers.add_parser('exec', help='Execute any my-grid command')
+    p_exec.add_argument('command', help='Command to execute (e.g., ":rect 10 5")')
+    p_exec.set_defaults(func=cmd_exec)
+
+    # text command
+    p_text = subparsers.add_parser('text', help='Write text at cursor')
+    p_text.add_argument('text', nargs='+', help='Text to write')
+    p_text.set_defaults(func=cmd_text)
+
+    # rect command
+    p_rect = subparsers.add_parser('rect', help='Draw rectangle at cursor')
+    p_rect.add_argument('width', type=int, help='Rectangle width')
+    p_rect.add_argument('height', type=int, help='Rectangle height')
+    p_rect.add_argument('char', nargs='?', help='Border character')
+    p_rect.set_defaults(func=cmd_rect)
+
+    # line command
+    p_line = subparsers.add_parser('line', help='Draw line from cursor')
+    p_line.add_argument('x2', type=int, help='End X coordinate')
+    p_line.add_argument('y2', type=int, help='End Y coordinate')
+    p_line.add_argument('char', nargs='?', help='Line character')
+    p_line.set_defaults(func=cmd_line)
+
+    # goto command
+    p_goto = subparsers.add_parser('goto', help='Move cursor to position')
+    p_goto.add_argument('x', type=int, help='X coordinate')
+    p_goto.add_argument('y', type=int, help='Y coordinate')
+    p_goto.set_defaults(func=cmd_goto)
+
+    # clear command
+    p_clear = subparsers.add_parser('clear', help='Clear the canvas')
+    p_clear.set_defaults(func=cmd_clear)
+
+    # save command
+    p_save = subparsers.add_parser('save', help='Save the project')
+    p_save.add_argument('file', nargs='?', help='Filename (optional)')
+    p_save.set_defaults(func=cmd_save)
+
+    # status command
+    p_status = subparsers.add_parser('status', help='Get current status')
+    p_status.set_defaults(func=cmd_status)
+
+    # box command
+    p_box = subparsers.add_parser('box', help='Create box and fill with stdin')
+    p_box.add_argument('x', type=int, help='Box X position')
+    p_box.add_argument('y', type=int, help='Box Y position')
+    p_box.add_argument('width', type=int, help='Box width')
+    p_box.add_argument('height', type=int, help='Box height')
+    p_box.set_defaults(func=cmd_box)
+
+    # region command
+    p_region = subparsers.add_parser('region', help='Write stdin at position')
+    p_region.add_argument('x', type=int, help='Start X position')
+    p_region.add_argument('y', type=int, help='Start Y position')
+    p_region.set_defaults(func=cmd_region)
+
+    # batch command
+    p_batch = subparsers.add_parser('batch', help='Execute batch of commands')
+    p_batch.add_argument('file', help='Command file (- for stdin)')
+    p_batch.set_defaults(func=cmd_batch)
+
+    args = parser.parse_args()
+
+    if not args.command_name:
+        parser.print_help()
+        return 1
+
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
