@@ -759,10 +759,80 @@ API Server:
         action='store_true',
         help='Disable FIFO listener'
     )
+    server_group.add_argument(
+        '--headless',
+        action='store_true',
+        help='Run API server without curses UI (for background/daemon use)'
+    )
 
     return parser.parse_args()
 
 
+def main_headless(args: argparse.Namespace) -> None:
+    """Run headless API server (no curses UI)."""
+    import signal
+    import time
+
+    # Build server config
+    server_config = ServerConfig(
+        tcp_enabled=not args.no_tcp,
+        tcp_port=args.port,
+        fifo_enabled=not args.no_fifo,
+        fifo_path=args.fifo or "/tmp/mygrid.fifo"
+    )
+
+    # Create minimal components for headless operation
+    canvas = Canvas()
+    viewport = Viewport()
+    viewport.resize(80, 24)  # Default size for headless
+
+    command_queue = CommandQueue()
+    api_server = APIServer(command_queue)
+    api_server.start(server_config)
+
+    print(f"my-grid headless server running on port {server_config.tcp_port}")
+    print("Press Ctrl+C to stop...")
+
+    # Handle shutdown signals
+    running = True
+    def signal_handler(sig, frame):
+        nonlocal running
+        running = False
+        print("\nShutting down...")
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Main loop - process commands
+    mode_config = ModeConfig()
+    state_machine = ModeStateMachine(canvas, viewport, mode_config)
+
+    while running:
+        # Process queued commands (get_nowait returns None if empty)
+        cmd = command_queue.get_nowait()
+        while cmd is not None:
+            result = state_machine._execute_command(cmd.command)
+            # Log command results in headless mode
+            if result.message:
+                logger.info(f"Command result: {result.message}")
+            # Send response if requested
+            if cmd.response_queue:
+                cmd.response_queue.put(result.message or "OK")
+            cmd = command_queue.get_nowait()
+
+        time.sleep(0.01)  # Small sleep to prevent CPU spin
+
+    # Cleanup
+    api_server.stop()
+    print("Server stopped.")
+
+
 if __name__ == "__main__":
     args = parse_args()
-    curses.wrapper(lambda stdscr: main(stdscr, args))
+    if args.headless:
+        if not args.server:
+            print("Error: --headless requires --server")
+            sys.exit(1)
+        main_headless(args)
+    else:
+        curses.wrapper(lambda stdscr: main(stdscr, args))
