@@ -31,6 +31,11 @@ case "$DEMO_TYPE" in
         echo "Note: my-grid server must be running (python src/main.py --server)"
         python3 demo/sticky_notes_demo.py
         ;;
+    edu|educational)
+        echo "Running educational demo (1600x480 canvas)..."
+        echo "Note: my-grid server must be running (python src/main.py --server)"
+        python3 demo/educational_demo.py
+        ;;
     help|--help|-h)
         echo "my-grid Demo Runner"
         echo ""
@@ -40,6 +45,7 @@ case "$DEMO_TYPE" in
         echo "  internal  - Internal curses demo (default, no server needed)"
         echo "  api       - API demo using mygrid-ctl (requires server)"
         echo "  sticky    - Sticky notes large canvas demo (requires server)"
+        echo "  edu       - Educational demo 1600x480 canvas (requires server)"
         echo ""
         echo "For API demos, start the server first:"
         echo "  python src/main.py --server &"
@@ -49,6 +55,7 @@ case "$DEMO_TYPE" in
         echo "  $0 internal 90      # 90-second internal demo"
         echo "  $0 api              # API demo"
         echo "  $0 sticky           # Sticky notes demo"
+        echo "  $0 edu              # Educational demo (1600x480 canvas)"
         ;;
     *)
         echo "Unknown demo type: $DEMO_TYPE"
