@@ -807,6 +807,8 @@ def main_headless(args: argparse.Namespace) -> None:
     mode_config = ModeConfig()
     state_machine = ModeStateMachine(canvas, viewport, mode_config)
 
+    from command_queue import CommandResponse
+
     while running:
         # Process queued commands (get_nowait returns None if empty)
         cmd = command_queue.get_nowait()
@@ -815,9 +817,13 @@ def main_headless(args: argparse.Namespace) -> None:
             # Log command results in headless mode
             if result.message:
                 logger.info(f"Command result: {result.message}")
-            # Send response if requested
+            # Send response if requested (must be CommandResponse object)
             if cmd.response_queue:
-                cmd.response_queue.put(result.message or "OK")
+                response = CommandResponse(
+                    status="ok" if not result.message or "error" not in result.message.lower() else "error",
+                    message=result.message or "OK"
+                )
+                cmd.response_queue.put(response)
             cmd = command_queue.get_nowait()
 
         time.sleep(0.01)  # Small sleep to prevent CPU spin

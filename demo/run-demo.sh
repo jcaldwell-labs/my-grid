@@ -36,6 +36,11 @@ case "$DEMO_TYPE" in
         echo "Note: my-grid server must be running (python src/main.py --server)"
         python3 demo/educational_demo.py
         ;;
+    visual|vhs)
+        echo "Running visual auto-demo for VHS recording (${DURATION}s)..."
+        echo "This runs the actual curses UI with programmed actions"
+        python3 demo/visual_auto_demo.py ${DURATION}
+        ;;
     help|--help|-h)
         echo "my-grid Demo Runner"
         echo ""
@@ -43,6 +48,7 @@ case "$DEMO_TYPE" in
         echo ""
         echo "Demo types:"
         echo "  internal  - Internal curses demo (default, no server needed)"
+        echo "  visual    - Visual auto-demo for VHS recording (no server needed)"
         echo "  api       - API demo using mygrid-ctl (requires server)"
         echo "  sticky    - Sticky notes large canvas demo (requires server)"
         echo "  edu       - Educational demo 1600x480 canvas (requires server)"
@@ -53,6 +59,7 @@ case "$DEMO_TYPE" in
         echo "Examples:"
         echo "  $0                  # 60-second internal demo"
         echo "  $0 internal 90      # 90-second internal demo"
+        echo "  $0 visual 75        # 75-second visual demo (for VHS)"
         echo "  $0 api              # API demo"
         echo "  $0 sticky           # Sticky notes demo"
         echo "  $0 edu              # Educational demo (1600x480 canvas)"
