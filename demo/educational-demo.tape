@@ -63,11 +63,11 @@ Type "# Start my-grid with API server"
 Enter
 Sleep 500ms
 
-Type "nohup python3 src/main.py --server > /dev/null 2>&1 &"
+Type "python3 src/main.py --server --headless &"
 Enter
-Sleep 3s
+Sleep 2s
 
-Type "# Server running (backgrounded with nohup)"
+Type "# Headless server running in background"
 Enter
 Sleep 1s
 
