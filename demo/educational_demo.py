@@ -588,6 +588,8 @@ def run_demo():
 def main():
     import argparse
 
+    global DEFAULT_HOST, DEFAULT_PORT
+
     parser = argparse.ArgumentParser(description="Educational Demo - Massive Canvas Tour")
     parser.add_argument('--host', default=DEFAULT_HOST)
     parser.add_argument('--port', type=int, default=DEFAULT_PORT)
@@ -596,7 +598,6 @@ def main():
 
     args = parser.parse_args()
 
-    global DEFAULT_HOST, DEFAULT_PORT
     DEFAULT_HOST = args.host
     DEFAULT_PORT = args.port
 
