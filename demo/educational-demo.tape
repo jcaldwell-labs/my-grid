@@ -63,7 +63,7 @@ Type "# Start my-grid with API server"
 Enter
 Sleep 500ms
 
-Type "python src/main.py --server &"
+Type "python3 src/main.py --server &"
 Enter
 Sleep 2s
 
@@ -75,7 +75,7 @@ Sleep 1s
 # RUN EDUCATIONAL DEMO
 # ============================================================================
 
-Type "python demo/educational_demo.py"
+Type "python3 demo/educational_demo.py"
 Enter
 
 # Wait for demo to complete
@@ -96,31 +96,31 @@ Sleep 1s
 
 Type "# Jump to the giant banner"
 Enter
-Type "python mygrid-ctl goto 400 25"
+Type "python3 mygrid-ctl goto 400 25"
 Enter
 Sleep 1.5s
 
 Type "# Pan across the banner to see its full width"
 Enter
-Type "python mygrid-ctl goto 600 25"
+Type "python3 mygrid-ctl goto 600 25"
 Enter
 Sleep 1.5s
 
 Type "# Jump to Architecture zone using bookmark 'a'"
 Enter
-Type "python mygrid-ctl goto 100 310"
+Type "python3 mygrid-ctl goto 100 310"
 Enter
 Sleep 1.5s
 
 Type "# Jump to the Easter Egg at (1337, 420)"
 Enter
-Type "python mygrid-ctl goto 1337 420"
+Type "python3 mygrid-ctl goto 1337 420"
 Enter
 Sleep 2s
 
 Type "# Query status"
 Enter
-Type "python mygrid-ctl status"
+Type "python3 mygrid-ctl status"
 Enter
 Sleep 2s
 
@@ -130,7 +130,7 @@ Sleep 2s
 
 Type "# Stop server"
 Enter
-Type "pkill -f 'python src/main.py --server' 2>/dev/null"
+Type "pkill -f 'python3 src/main.py --server' 2>/dev/null"
 Enter
 Sleep 1s
 
