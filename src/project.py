@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from viewport import Viewport
     from renderer import GridSettings
     from modes import ModeConfig, BookmarkManager
+    from zones import ZoneManager
 
 
 # Project file version for format compatibility
@@ -91,6 +92,7 @@ class Project:
         viewport: "Viewport",
         grid_settings: "GridSettings | None" = None,
         bookmarks: "BookmarkManager | None" = None,
+        zones: "ZoneManager | None" = None,
         filepath: Path | str | None = None
     ) -> Path:
         """
@@ -101,6 +103,7 @@ class Project:
             viewport: Viewport state to save
             grid_settings: Optional grid settings to save
             bookmarks: Optional bookmarks to save
+            zones: Optional zone manager to save
             filepath: Path to save to (uses self.filepath if None)
 
         Returns:
@@ -140,6 +143,9 @@ class Project:
         if bookmarks:
             data["bookmarks"] = bookmarks.to_dict()
 
+        if zones and len(zones) > 0:
+            data["zones"] = zones.to_dict()
+
         with open(self.filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
 
@@ -153,7 +159,8 @@ class Project:
         canvas: "Canvas",
         viewport: "Viewport",
         grid_settings: "GridSettings | None" = None,
-        bookmarks: "BookmarkManager | None" = None
+        bookmarks: "BookmarkManager | None" = None,
+        zones: "ZoneManager | None" = None
     ) -> "Project":
         """
         Load project from JSON file.
@@ -164,6 +171,7 @@ class Project:
             viewport: Viewport to restore
             grid_settings: Optional grid settings to restore
             bookmarks: Optional bookmark manager to restore
+            zones: Optional zone manager to restore
 
         Returns:
             Project instance
@@ -230,6 +238,14 @@ class Project:
             bm_data = data["bookmarks"]
             for key, bm in bm_data.items():
                 bookmarks.set(key, bm.get("x", 0), bm.get("y", 0), bm.get("name", ""))
+
+        # Load zones
+        if zones and "zones" in data:
+            from zones import ZoneManager
+            zones.clear()
+            loaded_zones = ZoneManager.from_dict(data["zones"])
+            for zone in loaded_zones:
+                zones._zones[zone.name.lower()] = zone
 
         project = cls(filepath=filepath, metadata=metadata)
         project.mark_clean()

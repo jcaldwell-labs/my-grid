@@ -20,6 +20,7 @@ from modes import Mode, ModeConfig, ModeStateMachine, ModeResult
 from project import Project, add_recent_project, suggest_filename
 from command_queue import CommandQueue, CommandResponse, send_response
 from server import APIServer, ServerConfig
+from zones import Zone, ZoneManager
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class Application:
             self.canvas, self.viewport, self.mode_config
         )
         self.project = Project()
+        self.zone_manager = ZoneManager()
 
         # API server components
         self.command_queue = CommandQueue()
@@ -84,6 +86,8 @@ class Application:
         self.state_machine.register_command("grid", self._cmd_grid)
         self.state_machine.register_command("ydir", self._cmd_ydir)
         self.state_machine.register_command("status", self._cmd_status)
+        self.state_machine.register_command("zone", self._cmd_zone)
+        self.state_machine.register_command("zones", self._cmd_zones)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -110,7 +114,8 @@ class Application:
                 self.project = Project.load(
                     filepath, self.canvas, self.viewport,
                     grid_settings=self.renderer.grid,
-                    bookmarks=self.state_machine.bookmarks
+                    bookmarks=self.state_machine.bookmarks,
+                    zones=self.zone_manager
                 )
                 add_recent_project(filepath)
                 self._show_message(f"Loaded: {filepath.name}")
@@ -149,7 +154,6 @@ class Application:
         # Build status line sections
         mode = self.state_machine.mode_name
         cursor = self.viewport.cursor
-        origin = self.viewport.origin
 
         # Mode indicator with visual distinction
         mode_indicators = {
@@ -159,13 +163,6 @@ class Application:
             "COMMAND": "CMD",
         }
         mode_str = mode_indicators.get(mode, mode)
-
-        # File status: name with modified indicator
-        file_status = self.project.display_name
-        if self.project.dirty:
-            file_status = f"[+] {self.project.filename}"
-        else:
-            file_status = f"    {self.project.filename}"
 
         # Cursor position - prominent display
         pos_str = f"X:{cursor.x:>5} Y:{cursor.y:>5}"
@@ -177,14 +174,39 @@ class Application:
         else:
             cell_str = f"'{cell_char}'"
 
+        # Current zone (if cursor is in one)
+        current_zone = self.zone_manager.find_at(cursor.x, cursor.y)
+        zone_str = current_zone.name if current_zone else "---"
+
+        # Nearest zone/bookmark indicator
+        nearest_info = ""
+        nearest = self.zone_manager.nearest(cursor.x, cursor.y)
+        if nearest:
+            zone, dist, direction = nearest
+            # Show bookmark key if zone has one, otherwise zone name
+            label = f"[{zone.bookmark}]" if zone.bookmark else zone.name[:8]
+            nearest_info = f"{direction}{int(dist)} {label}"
+
+        # File status: name with modified indicator
+        if self.project.dirty:
+            file_status = f"[+] {self.project.filename}"
+        else:
+            file_status = self.project.filename
+
         # Build the line with clear sections
-        # Format: MODE | X:    0 Y:    0 | 'char' | [+] filename | cells
+        # Format: MODE | X:    0 Y:    0 | 'char' | ZONE | →120 [b] | filename | cells
         parts = [
             f" {mode_str}",
             f"{pos_str}",
             f"{cell_str:>3}",
-            file_status,
+            zone_str,
         ]
+
+        # Add nearest zone indicator if available
+        if nearest_info:
+            parts.append(nearest_info)
+
+        parts.append(file_status)
 
         # Add cell count
         if self.canvas.cell_count > 0:
@@ -430,7 +452,8 @@ class Application:
                 self.project.save(
                     self.canvas, self.viewport,
                     grid_settings=self.renderer.grid,
-                    bookmarks=self.state_machine.bookmarks
+                    bookmarks=self.state_machine.bookmarks,
+                    zones=self.zone_manager
                 )
                 add_recent_project(self.project.filepath)
                 self._show_message(f"Saved: {self.project.filename}")
@@ -456,6 +479,7 @@ class Application:
                 self.canvas, self.viewport,
                 grid_settings=self.renderer.grid,
                 bookmarks=self.state_machine.bookmarks,
+                zones=self.zone_manager,
                 filepath=filepath
             )
             add_recent_project(filepath)
@@ -484,6 +508,7 @@ class Application:
         self.viewport.origin.set(0, 0)
         self.viewport.pan_to(0, 0)
         self.state_machine.bookmarks.clear()
+        self.zone_manager.clear()
         self.project = Project()
         self._show_message("New canvas created")
 
@@ -542,6 +567,8 @@ class Application:
                 self.project.save(
                     self.canvas, self.viewport,
                     grid_settings=self.renderer.grid,
+                    bookmarks=self.state_machine.bookmarks,
+                    zones=self.zone_manager,
                     filepath=Path(filename)
                 )
                 self._show_message(f"Saved: {filename}")
@@ -716,6 +743,190 @@ class Application:
             "server": self.api_server.status.tcp_port if self.api_server else None
         }
         return ModeResult(message=json.dumps(state))
+
+    def _cmd_zone(self, args: list[str]) -> ModeResult:
+        """
+        Zone management command.
+
+        Usage:
+            :zone create NAME X Y W H [desc]  - Create zone at coordinates
+            :zone create NAME here W H [desc] - Create zone at cursor
+            :zone delete NAME                 - Delete zone
+            :zone goto NAME                   - Jump to zone center
+            :zone info [NAME]                 - Show zone info
+            :zone rename OLD NEW              - Rename zone
+            :zone resize NAME W H             - Resize zone
+            :zone move NAME X Y               - Move zone
+            :zone link NAME BOOKMARK          - Associate bookmark
+            :zone border NAME [style]         - Draw border (uses boxes)
+        """
+        if not args:
+            return ModeResult(
+                message="Usage: zone create|delete|goto|info|rename|resize|move|link|border"
+            )
+
+        subcmd = args[0].lower()
+
+        # :zone create NAME X Y W H [desc]
+        # :zone create NAME here W H [desc]
+        if subcmd == "create":
+            if len(args) < 5:
+                return ModeResult(message="Usage: zone create NAME X Y W H [desc]")
+            name = args[1]
+            if args[2].lower() == "here":
+                x = self.viewport.cursor.x
+                y = self.viewport.cursor.y
+                try:
+                    w = int(args[3])
+                    h = int(args[4])
+                    desc = " ".join(args[5:]) if len(args) > 5 else ""
+                except (ValueError, IndexError):
+                    return ModeResult(message="Usage: zone create NAME here W H [desc]")
+            else:
+                try:
+                    x = int(args[2])
+                    y = int(args[3])
+                    w = int(args[4])
+                    h = int(args[5])
+                    desc = " ".join(args[6:]) if len(args) > 6 else ""
+                except (ValueError, IndexError):
+                    return ModeResult(message="Usage: zone create NAME X Y W H [desc]")
+
+            try:
+                self.zone_manager.create(name, x, y, w, h, description=desc)
+                self.project.mark_dirty()
+                return ModeResult(message=f"Created zone '{name}' at ({x},{y}) {w}x{h}")
+            except ValueError as e:
+                return ModeResult(message=str(e))
+
+        # :zone delete NAME
+        elif subcmd == "delete":
+            if len(args) < 2:
+                return ModeResult(message="Usage: zone delete NAME")
+            name = args[1]
+            if self.zone_manager.delete(name):
+                self.project.mark_dirty()
+                return ModeResult(message=f"Deleted zone '{name}'")
+            return ModeResult(message=f"Zone '{name}' not found")
+
+        # :zone goto NAME
+        elif subcmd == "goto":
+            if len(args) < 2:
+                return ModeResult(message="Usage: zone goto NAME")
+            name = args[1]
+            zone = self.zone_manager.get(name)
+            if zone is None:
+                return ModeResult(message=f"Zone '{name}' not found")
+            cx, cy = zone.center()
+            self.viewport.cursor.set(cx, cy)
+            self.viewport.center_on_cursor()
+            return ModeResult(message=f"Jumped to zone '{zone.name}'")
+
+        # :zone info [NAME]
+        elif subcmd == "info":
+            if len(args) < 2:
+                # Show current zone info
+                zone = self.zone_manager.find_at(
+                    self.viewport.cursor.x, self.viewport.cursor.y
+                )
+                if zone is None:
+                    return ModeResult(message="Not in any zone")
+            else:
+                zone = self.zone_manager.get(args[1])
+                if zone is None:
+                    return ModeResult(message=f"Zone '{args[1]}' not found")
+
+            info = f"'{zone.name}' ({zone.x},{zone.y}) {zone.width}x{zone.height}"
+            if zone.bookmark:
+                info += f" [bookmark:{zone.bookmark}]"
+            if zone.description:
+                info += f" - {zone.description}"
+            return ModeResult(message=info)
+
+        # :zone rename OLD NEW
+        elif subcmd == "rename":
+            if len(args) < 3:
+                return ModeResult(message="Usage: zone rename OLD NEW")
+            if self.zone_manager.rename(args[1], args[2]):
+                self.project.mark_dirty()
+                return ModeResult(message=f"Renamed '{args[1]}' to '{args[2]}'")
+            return ModeResult(message=f"Failed to rename (zone not found or name conflict)")
+
+        # :zone resize NAME W H
+        elif subcmd == "resize":
+            if len(args) < 4:
+                return ModeResult(message="Usage: zone resize NAME W H")
+            try:
+                w, h = int(args[2]), int(args[3])
+                if self.zone_manager.resize(args[1], w, h):
+                    self.project.mark_dirty()
+                    return ModeResult(message=f"Resized '{args[1]}' to {w}x{h}")
+                return ModeResult(message=f"Zone '{args[1]}' not found")
+            except ValueError:
+                return ModeResult(message="Invalid dimensions")
+
+        # :zone move NAME X Y
+        elif subcmd == "move":
+            if len(args) < 4:
+                return ModeResult(message="Usage: zone move NAME X Y")
+            try:
+                x, y = int(args[2]), int(args[3])
+                if self.zone_manager.move(args[1], x, y):
+                    self.project.mark_dirty()
+                    return ModeResult(message=f"Moved '{args[1]}' to ({x},{y})")
+                return ModeResult(message=f"Zone '{args[1]}' not found")
+            except ValueError:
+                return ModeResult(message="Invalid coordinates")
+
+        # :zone link NAME BOOKMARK
+        elif subcmd == "link":
+            if len(args) < 3:
+                return ModeResult(message="Usage: zone link NAME BOOKMARK")
+            bookmark = args[2] if args[2] != "none" else None
+            if self.zone_manager.set_bookmark(args[1], bookmark):
+                self.project.mark_dirty()
+                if bookmark:
+                    return ModeResult(message=f"Linked '{args[1]}' to bookmark '{bookmark}'")
+                return ModeResult(message=f"Unlinked bookmark from '{args[1]}'")
+            return ModeResult(message=f"Zone '{args[1]}' not found")
+
+        # :zone border NAME [style]
+        elif subcmd == "border":
+            if len(args) < 2:
+                return ModeResult(message="Usage: zone border NAME [style]")
+            zone = self.zone_manager.get(args[1])
+            if zone is None:
+                return ModeResult(message=f"Zone '{args[1]}' not found")
+
+            # Draw a simple border around the zone
+            style = args[2] if len(args) > 2 else None
+            zone.border_style = style
+
+            # Draw border using canvas rect
+            self.canvas.draw_rect(zone.x, zone.y, zone.width, zone.height)
+            self.project.mark_dirty()
+            return ModeResult(message=f"Drew border for zone '{zone.name}'")
+
+        else:
+            return ModeResult(
+                message="Usage: zone create|delete|goto|info|rename|resize|move|link|border"
+            )
+
+    def _cmd_zones(self, args: list[str]) -> ModeResult:
+        """List all zones."""
+        zones = self.zone_manager.list_all()
+        if not zones:
+            return ModeResult(message="No zones defined")
+
+        # Build zone list
+        lines = []
+        for z in zones:
+            info = f"  {z.name}: ({z.x},{z.y}) {z.width}x{z.height}"
+            if z.bookmark:
+                info += f" [{z.bookmark}]"
+            lines.append(info)
+
+        return ModeResult(message=f"{len(zones)} zones: " + ", ".join(z.name for z in zones))
 
 
 def main(stdscr: "curses.window", args: argparse.Namespace) -> None:
