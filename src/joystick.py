@@ -131,6 +131,17 @@ class JoystickHandler:
             return False
 
         try:
+            # On Linux/WSL, help SDL find the joystick device
+            import os
+            import glob
+            if os.path.exists("/dev/input"):
+                # Look for joystick event devices
+                js_devices = glob.glob("/dev/input/by-id/*joystick*")
+                if js_devices:
+                    # Get the actual device path
+                    event_path = os.path.realpath(js_devices[0])
+                    os.environ["SDL_JOYSTICK_DEVICE"] = event_path
+
             _pygame.init()
             _pygame.joystick.init()
 
