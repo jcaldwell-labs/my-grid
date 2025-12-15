@@ -6,11 +6,20 @@ Renders the visible portion of the canvas through the viewport.
 
 import curses
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from canvas import Canvas
     from viewport import Viewport
+
+
+class GridLineMode(Enum):
+    """Grid display modes."""
+    OFF = auto()      # No grid display
+    MARKERS = auto()  # Intersection markers only (default)
+    LINES = auto()    # Full grid lines
+    DOTS = auto()     # Dots along grid lines
 
 
 @dataclass
@@ -23,12 +32,28 @@ class GridSettings:
     major_interval: int = 10  # Major grid markers every N cells
     minor_interval: int = 5   # Minor markers between major
 
+    # Grid line mode
+    line_mode: GridLineMode = GridLineMode.MARKERS
+
+    # Ruler and label display
+    show_rulers: bool = False       # Edge rulers with tick marks
+    show_labels: bool = False       # Coordinate labels at intervals
+    label_interval: int = 50        # How often to show coordinate labels
+
     # Characters for grid display
     origin_char: str = '+'
     major_char: str = '+'      # Major intersection marker
     minor_char: str = '·'      # Minor intersection marker (subtle dot)
     axis_h_char: str = '-'     # Horizontal axis line (through origin)
     axis_v_char: str = '|'     # Vertical axis line (through origin)
+
+    # Line mode characters
+    line_h_char: str = '─'     # Horizontal grid line
+    line_v_char: str = '│'     # Vertical grid line
+    line_cross_char: str = '┼' # Grid line intersection
+    line_major_h: str = '═'    # Major horizontal line
+    line_major_v: str = '║'    # Major vertical line
+    line_major_cross: str = '╬' # Major intersection
 
 
 @dataclass
@@ -96,20 +121,38 @@ class Renderer:
 
         height, width = self.get_terminal_size()
 
+        # Calculate render area accounting for rulers and status
+        ruler_offset_x = 0
+        ruler_offset_y = 0
+
+        if self.grid.show_rulers:
+            ruler_offset_x = 6  # Space for Y-axis labels (e.g., "-1234 ")
+            ruler_offset_y = 1  # Space for X-axis ruler
+
         # Reserve bottom line for status if provided
-        render_height = height - 1 if status_line else height
+        status_lines = 1 if status_line else 0
+        render_height = height - status_lines - ruler_offset_y
+        render_width = width - ruler_offset_x
+
+        # Render rulers if enabled
+        if self.grid.show_rulers:
+            self._render_rulers(viewport, width, height, ruler_offset_x, ruler_offset_y)
 
         # Render each cell in the viewport
         for sy in range(min(render_height, viewport.height)):
-            for sx in range(min(width, viewport.width)):
+            for sx in range(min(render_width, viewport.width)):
                 cx, cy = viewport.screen_to_canvas(sx, sy)
                 char, attr = self._get_cell_display(canvas, viewport, cx, cy, sx, sy)
 
                 try:
-                    self.stdscr.addch(sy, sx, char, attr)
+                    self.stdscr.addch(sy + ruler_offset_y, sx + ruler_offset_x, char, attr)
                 except curses.error:
                     # Ignore errors at bottom-right corner
                     pass
+
+        # Render coordinate labels if enabled
+        if self.grid.show_labels:
+            self._render_coordinate_labels(viewport, width, height, ruler_offset_x, ruler_offset_y)
 
         # Render status line
         if status_line:
@@ -168,40 +211,206 @@ class Renderer:
         """
         Get grid overlay character for a position.
 
-        Grid shows intersection markers only (not full lines):
-        - Major markers ('+') at every major_interval (default 10)
-        - Minor markers ('·') at every minor_interval (default 5)
+        Supports multiple grid modes:
+        - MARKERS: Intersection markers only (default)
+        - LINES: Full grid lines with box-drawing characters
+        - DOTS: Dots along grid lines
+        - OFF: No grid display
 
         Returns (char, attr) or (None, 0) if no grid at this position.
         """
+        # If grid is off, return nothing
+        if self.grid.line_mode == GridLineMode.OFF:
+            return None, 0
+
         # Calculate position relative to origin
         rel_x = cx - viewport.origin.x
         rel_y = cy - viewport.origin.y
 
-        # Check if on axis lines (through origin)
-        on_x_axis = (rel_y == 0)
-        on_y_axis = (rel_x == 0)
-
         # Check grid intervals
-        on_major_x = rel_x % self.grid.major_interval == 0 if self.grid.major_interval > 0 else False
-        on_major_y = rel_y % self.grid.major_interval == 0 if self.grid.major_interval > 0 else False
-        on_minor_x = rel_x % self.grid.minor_interval == 0 if self.grid.minor_interval > 0 else False
-        on_minor_y = rel_y % self.grid.minor_interval == 0 if self.grid.minor_interval > 0 else False
+        major_int = self.grid.major_interval
+        minor_int = self.grid.minor_interval
 
-        # Major grid - show markers at intersections of major intervals
-        if self.grid.show_major_lines:
-            if on_major_x and on_major_y:
+        on_major_x = (rel_x % major_int == 0) if major_int > 0 else False
+        on_major_y = (rel_y % major_int == 0) if major_int > 0 else False
+        on_minor_x = (rel_x % minor_int == 0) if minor_int > 0 else False
+        on_minor_y = (rel_y % minor_int == 0) if minor_int > 0 else False
+
+        # Determine what type of grid position this is
+        is_major_intersection = on_major_x and on_major_y
+        is_minor_intersection = on_minor_x and on_minor_y
+        is_on_major_h = on_major_y  # On a horizontal major line
+        is_on_major_v = on_major_x  # On a vertical major line
+        is_on_minor_h = on_minor_y  # On a horizontal minor line
+        is_on_minor_v = on_minor_x  # On a vertical minor line
+
+        # MARKERS mode - original behavior
+        if self.grid.line_mode == GridLineMode.MARKERS:
+            if self.grid.show_major_lines and is_major_intersection:
                 return self.grid.major_char, curses.color_pair(3) | curses.A_DIM
-
-        # Minor grid - show subtle dots at intersections of minor intervals
-        # (but not where major markers already are)
-        if self.grid.show_minor_lines:
-            if on_minor_x and on_minor_y:
-                # Skip if this is a major intersection
-                if not (on_major_x and on_major_y and self.grid.show_major_lines):
+            if self.grid.show_minor_lines and is_minor_intersection:
+                if not (is_major_intersection and self.grid.show_major_lines):
                     return self.grid.minor_char, curses.color_pair(4) | curses.A_DIM
+            return None, 0
+
+        # LINES mode - full grid lines with box-drawing characters
+        if self.grid.line_mode == GridLineMode.LINES:
+            # Major intersections
+            if self.grid.show_major_lines and is_major_intersection:
+                return self.grid.line_major_cross, curses.color_pair(3)
+
+            # Major lines (not at intersection)
+            if self.grid.show_major_lines:
+                if is_on_major_h and not is_on_major_v:
+                    return self.grid.line_major_h, curses.color_pair(3) | curses.A_DIM
+                if is_on_major_v and not is_on_major_h:
+                    return self.grid.line_major_v, curses.color_pair(3) | curses.A_DIM
+
+            # Minor intersections
+            if self.grid.show_minor_lines and is_minor_intersection:
+                if not (is_major_intersection and self.grid.show_major_lines):
+                    return self.grid.line_cross_char, curses.color_pair(4) | curses.A_DIM
+
+            # Minor lines (not at intersection)
+            if self.grid.show_minor_lines:
+                if is_on_minor_h and not (is_on_major_h and self.grid.show_major_lines):
+                    return self.grid.line_h_char, curses.color_pair(4) | curses.A_DIM
+                if is_on_minor_v and not (is_on_major_v and self.grid.show_major_lines):
+                    return self.grid.line_v_char, curses.color_pair(4) | curses.A_DIM
+
+            return None, 0
+
+        # DOTS mode - dots along grid lines
+        if self.grid.line_mode == GridLineMode.DOTS:
+            if self.grid.show_major_lines:
+                if is_on_major_h or is_on_major_v:
+                    return '•', curses.color_pair(3) | curses.A_DIM
+            if self.grid.show_minor_lines:
+                if is_on_minor_h or is_on_minor_v:
+                    if not ((is_on_major_h or is_on_major_v) and self.grid.show_major_lines):
+                        return '·', curses.color_pair(4) | curses.A_DIM
+            return None, 0
 
         return None, 0
+
+    def _render_rulers(
+        self,
+        viewport: "Viewport",
+        width: int,
+        height: int,
+        offset_x: int,
+        offset_y: int
+    ) -> None:
+        """
+        Render coordinate rulers along the edges.
+
+        Args:
+            viewport: Current viewport
+            width: Terminal width
+            height: Terminal height
+            offset_x: X offset for canvas content
+            offset_y: Y offset for canvas content
+        """
+        ruler_attr = curses.color_pair(4) | curses.A_DIM
+
+        # X-axis ruler (top row)
+        for sx in range(width - offset_x):
+            cx, _ = viewport.screen_to_canvas(sx, 0)
+
+            # Show tick marks at intervals
+            if cx % 10 == 0:
+                # Show coordinate label every 10 units
+                label = str(cx)
+                try:
+                    # Position label centered on tick
+                    label_start = sx + offset_x - len(label) // 2
+                    if label_start >= offset_x and label_start + len(label) < width:
+                        self.stdscr.addstr(0, label_start, label, ruler_attr)
+                except curses.error:
+                    pass
+            elif cx % 5 == 0:
+                # Minor tick
+                try:
+                    self.stdscr.addch(0, sx + offset_x, '·', ruler_attr)
+                except curses.error:
+                    pass
+
+        # Y-axis ruler (left column)
+        for sy in range(height - offset_y - 1):  # -1 for status line
+            _, cy = viewport.screen_to_canvas(0, sy)
+
+            # Show coordinate label at intervals
+            if cy % 10 == 0:
+                label = f"{cy:>5}"
+                try:
+                    self.stdscr.addstr(sy + offset_y, 0, label, ruler_attr)
+                except curses.error:
+                    pass
+            elif cy % 5 == 0:
+                # Minor tick
+                try:
+                    self.stdscr.addch(sy + offset_y, 4, '·', ruler_attr)
+                except curses.error:
+                    pass
+
+    def _render_coordinate_labels(
+        self,
+        viewport: "Viewport",
+        width: int,
+        height: int,
+        offset_x: int,
+        offset_y: int
+    ) -> None:
+        """
+        Render coordinate labels at regular intervals on the canvas.
+
+        These appear as floating labels within the canvas area,
+        showing coordinates at label_interval spacing.
+        """
+        label_attr = curses.color_pair(4) | curses.A_DIM
+        interval = self.grid.label_interval
+
+        # Calculate visible canvas range
+        min_cx = viewport.x
+        max_cx = viewport.x + viewport.width
+        min_cy = viewport.y
+        max_cy = viewport.y + viewport.height
+
+        # Find first label position >= min
+        start_x = ((min_cx // interval) + 1) * interval
+        start_y = ((min_cy // interval) + 1) * interval
+
+        # Render X labels (along a horizontal line)
+        for cx in range(start_x, max_cx, interval):
+            screen_pos = viewport.canvas_to_screen(cx, start_y)
+            if screen_pos:
+                sx, sy = screen_pos
+                label = f"x={cx}"
+                try:
+                    self.stdscr.addstr(
+                        sy + offset_y,
+                        sx + offset_x,
+                        label,
+                        label_attr
+                    )
+                except curses.error:
+                    pass
+
+        # Render Y labels (along a vertical line)
+        for cy in range(start_y, max_cy, interval):
+            screen_pos = viewport.canvas_to_screen(start_x, cy)
+            if screen_pos:
+                sx, sy = screen_pos
+                label = f"y={cy}"
+                try:
+                    self.stdscr.addstr(
+                        sy + offset_y,
+                        sx + offset_x,
+                        label,
+                        label_attr
+                    )
+                except curses.error:
+                    pass
 
     def _render_status_line(self, text: str, y: int, width: int) -> None:
         """Render status line at bottom of screen."""

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from canvas import Canvas
 from viewport import Viewport
-from renderer import Renderer, GridSettings, create_status_line
+from renderer import Renderer, GridSettings, GridLineMode, create_status_line
 from input import InputHandler, Action, InputEvent
 from modes import Mode, ModeConfig, ModeStateMachine, ModeResult
 from project import Project, add_recent_project, suggest_filename
@@ -618,26 +618,70 @@ class Application:
         return ModeResult(message=f"Wrote {len(text)} characters")
 
     def _cmd_grid(self, args: list[str]) -> ModeResult:
-        """Configure grid: grid major|minor|N"""
+        """Configure grid: grid [major|minor|lines|markers|dots|off|rulers|labels|interval]"""
         if not args:
+            mode_name = self.renderer.grid.line_mode.name.lower()
             return ModeResult(
-                message=f"Grid: major={self.renderer.grid.major_interval} "
-                       f"minor={self.renderer.grid.minor_interval}"
+                message=f"Grid: mode={mode_name} major={self.renderer.grid.major_interval} "
+                       f"minor={self.renderer.grid.minor_interval} "
+                       f"rulers={'ON' if self.renderer.grid.show_rulers else 'OFF'}"
             )
+
         arg = args[0].lower()
+
+        # Toggle major/minor grid visibility
         if arg == "major":
             self.renderer.grid.show_major_lines = not self.renderer.grid.show_major_lines
             return ModeResult(message=f"Major grid: {'ON' if self.renderer.grid.show_major_lines else 'OFF'}")
         elif arg == "minor":
             self.renderer.grid.show_minor_lines = not self.renderer.grid.show_minor_lines
             return ModeResult(message=f"Minor grid: {'ON' if self.renderer.grid.show_minor_lines else 'OFF'}")
+
+        # Grid line modes
+        elif arg == "lines":
+            self.renderer.grid.line_mode = GridLineMode.LINES
+            return ModeResult(message="Grid mode: LINES (full grid lines)")
+        elif arg == "markers":
+            self.renderer.grid.line_mode = GridLineMode.MARKERS
+            return ModeResult(message="Grid mode: MARKERS (intersection only)")
+        elif arg == "dots":
+            self.renderer.grid.line_mode = GridLineMode.DOTS
+            return ModeResult(message="Grid mode: DOTS (dotted lines)")
+        elif arg == "off":
+            self.renderer.grid.line_mode = GridLineMode.OFF
+            return ModeResult(message="Grid mode: OFF")
+
+        # Ruler and label toggles
+        elif arg == "rulers":
+            self.renderer.grid.show_rulers = not self.renderer.grid.show_rulers
+            return ModeResult(message=f"Rulers: {'ON' if self.renderer.grid.show_rulers else 'OFF'}")
+        elif arg == "labels":
+            self.renderer.grid.show_labels = not self.renderer.grid.show_labels
+            return ModeResult(message=f"Coordinate labels: {'ON' if self.renderer.grid.show_labels else 'OFF'}")
+
+        # Interval configuration
+        elif arg == "interval":
+            if len(args) < 2:
+                return ModeResult(message=f"Interval: major={self.renderer.grid.major_interval} minor={self.renderer.grid.minor_interval}")
+            try:
+                major = int(args[1])
+                minor = int(args[2]) if len(args) > 2 else major // 2
+                self.renderer.grid.major_interval = major
+                self.renderer.grid.minor_interval = minor
+                return ModeResult(message=f"Grid interval: major={major} minor={minor}")
+            except ValueError:
+                return ModeResult(message="Usage: grid interval MAJOR [MINOR]")
+
+        # Try as a number (legacy: set major interval)
         else:
             try:
                 interval = int(arg)
                 self.renderer.grid.major_interval = interval
                 return ModeResult(message=f"Major interval: {interval}")
             except ValueError:
-                return ModeResult(message="Usage: grid major|minor|N")
+                return ModeResult(
+                    message="Usage: grid [major|minor|lines|markers|dots|off|rulers|labels|interval N]"
+                )
 
     def _cmd_ydir(self, args: list[str]) -> ModeResult:
         """Set Y direction: ydir up|down"""
