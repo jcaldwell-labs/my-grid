@@ -21,6 +21,13 @@ from project import Project, add_recent_project, suggest_filename
 from command_queue import CommandQueue, CommandResponse, send_response
 from server import APIServer, ServerConfig
 from zones import Zone, ZoneManager
+from external import (
+    tool_available, get_tool_status,
+    draw_box, get_boxes_styles,
+    draw_figlet, get_figlet_fonts,
+    pipe_command, write_lines_to_canvas
+)
+from joystick import JoystickHandler, JoystickConfig, JoystickDirection
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +59,10 @@ class Application:
         self.api_server: APIServer | None = None
         self._server_config = server_config
 
+        # Joystick handler
+        self.joystick = JoystickHandler()
+        self._joystick_enabled = False
+
         # Status message (temporary display)
         self._status_message: str | None = None
         self._status_message_frames: int = 0
@@ -65,6 +76,9 @@ class Application:
         # Start API server if configured
         if server_config:
             self._start_server(server_config)
+
+        # Initialize joystick (silent - don't clutter startup)
+        self._joystick_enabled = self.joystick.init(silent=True)
 
     def _update_viewport_size(self) -> None:
         """Update viewport to match terminal size."""
@@ -88,6 +102,10 @@ class Application:
         self.state_machine.register_command("status", self._cmd_status)
         self.state_machine.register_command("zone", self._cmd_zone)
         self.state_machine.register_command("zones", self._cmd_zones)
+        self.state_machine.register_command("box", self._cmd_box)
+        self.state_machine.register_command("figlet", self._cmd_figlet)
+        self.state_machine.register_command("pipe", self._cmd_pipe)
+        self.state_machine.register_command("tools", self._cmd_tools)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -212,14 +230,18 @@ class Application:
         if self.canvas.cell_count > 0:
             parts.append(f"{self.canvas.cell_count} cells")
 
+        # Add joystick indicator
+        if self._joystick_enabled and self.joystick.is_connected:
+            parts.append("JOY")
+
         return " │ ".join(parts)
 
     def run(self) -> None:
         """Main application loop."""
         running = True
 
-        # Enable non-blocking input if server is running
-        if self._server_config:
+        # Enable non-blocking input if server or joystick is active
+        if self._server_config or self._joystick_enabled:
             self.stdscr.timeout(50)  # 50ms timeout = ~20 FPS
 
         try:
@@ -228,6 +250,10 @@ class Application:
                 if self._server_config:
                     self._process_external_commands()
 
+                # Process joystick input
+                if self._joystick_enabled:
+                    self._process_joystick_input()
+
                 # Handle terminal resize
                 self._update_viewport_size()
 
@@ -235,10 +261,10 @@ class Application:
                 status = self._get_status_line()
                 self.renderer.render(self.canvas, self.viewport, status)
 
-                # Get input (may timeout if server mode)
+                # Get input (may timeout if server/joystick mode)
                 key = self.renderer.get_input()
 
-                # Handle timeout (no input) - just continue loop
+                # Handle timeout (no input) - just continue loop for joystick polling
                 if key == -1:
                     continue
 
@@ -301,6 +327,9 @@ class Application:
         finally:
             # Clean up server on exit
             self._stop_server()
+            # Clean up joystick
+            if self._joystick_enabled:
+                self.joystick.cleanup()
 
     def _process_external_commands(self) -> None:
         """Process commands from the external API queue."""
@@ -322,6 +351,36 @@ class Application:
 
             # Send response back if requested
             send_response(ext_cmd, response)
+
+    def _process_joystick_input(self) -> None:
+        """Process joystick input for cursor movement."""
+        # Get movement from joystick (handles repeat timing internally)
+        dx, dy = self.joystick.get_movement()
+
+        if dx != 0 or dy != 0:
+            # Move cursor based on current mode
+            mode = self.state_machine.mode
+
+            if mode == Mode.NAV or mode == Mode.EDIT:
+                # Move cursor
+                self.viewport.move_cursor(dx, dy)
+            elif mode == Mode.PAN:
+                # Pan viewport (cursor follows)
+                self.viewport.pan(dx, dy)
+
+        # Check for button presses
+        buttons = self.joystick.get_button_presses()
+        for btn in buttons:
+            if btn == 0:  # A button - confirm/select
+                # In NAV mode, could enter edit mode
+                if self.state_machine.mode == Mode.NAV:
+                    self.state_machine.mode = Mode.EDIT
+                    self._show_message("-- EDIT --")
+            elif btn == 1:  # B button - back/escape
+                # Exit current mode
+                if self.state_machine.mode != Mode.NAV:
+                    self.state_machine.mode = Mode.NAV
+                    self._show_message("")
 
     def _execute_external_command(self, command: str) -> ModeResult:
         """Execute a command string from external source."""
@@ -927,6 +986,137 @@ class Application:
             lines.append(info)
 
         return ModeResult(message=f"{len(zones)} zones: " + ", ".join(z.name for z in zones))
+
+    def _cmd_box(self, args: list[str]) -> ModeResult:
+        """
+        Draw a box using the external 'boxes' tool.
+
+        Usage:
+            :box list              - List available box styles
+            :box STYLE TEXT...     - Draw box with style around text
+            :box TEXT...           - Draw box with default style (ansi)
+        """
+        if not args:
+            return ModeResult(message="Usage: box [list | STYLE] TEXT...")
+
+        # Check if boxes is available
+        if not tool_available("boxes"):
+            return ModeResult(message="Error: 'boxes' command not found")
+
+        # List styles
+        if args[0].lower() == "list":
+            styles = get_boxes_styles()
+            if not styles:
+                return ModeResult(message="No box styles found")
+            # Show first 20 styles
+            preview = styles[:20]
+            more = f" (+{len(styles) - 20} more)" if len(styles) > 20 else ""
+            return ModeResult(message=f"Styles: {', '.join(preview)}{more}")
+
+        # Determine style and content
+        styles = get_boxes_styles()
+        if args[0].lower() in [s.lower() for s in styles]:
+            style = args[0]
+            content = " ".join(args[1:]) if len(args) > 1 else ""
+        else:
+            style = "ansi"
+            content = " ".join(args)
+
+        if not content:
+            return ModeResult(message="Usage: box [STYLE] TEXT...")
+
+        # Generate box
+        result = draw_box(content, style)
+        if not result.success:
+            return ModeResult(message=f"Box error: {result.error}")
+
+        # Write to canvas at cursor position
+        cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+        width, height = write_lines_to_canvas(self.canvas, result.lines, cx, cy)
+        self.project.mark_dirty()
+
+        return ModeResult(message=f"Drew {width}x{height} box ({style})")
+
+    def _cmd_figlet(self, args: list[str]) -> ModeResult:
+        """
+        Generate ASCII art text using figlet.
+
+        Usage:
+            :figlet list           - List available fonts
+            :figlet TEXT           - Draw with default font (standard)
+            :figlet -f FONT TEXT   - Draw with specific font
+        """
+        if not args:
+            return ModeResult(message="Usage: figlet [-f FONT] TEXT...")
+
+        # Check if figlet is available
+        if not tool_available("figlet"):
+            return ModeResult(message="Error: 'figlet' command not found")
+
+        # List fonts
+        if args[0].lower() == "list":
+            fonts = get_figlet_fonts()
+            if not fonts:
+                return ModeResult(message="No figlet fonts found")
+            return ModeResult(message=f"Fonts: {', '.join(fonts)}")
+
+        # Parse font option
+        font = "standard"
+        text_start = 0
+        if args[0] == "-f" and len(args) > 2:
+            font = args[1]
+            text_start = 2
+
+        text = " ".join(args[text_start:])
+        if not text:
+            return ModeResult(message="Usage: figlet [-f FONT] TEXT...")
+
+        # Generate figlet
+        result = draw_figlet(text, font)
+        if not result.success:
+            return ModeResult(message=f"Figlet error: {result.error}")
+
+        # Write to canvas at cursor position
+        cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+        width, height = write_lines_to_canvas(self.canvas, result.lines, cx, cy)
+        self.project.mark_dirty()
+
+        return ModeResult(message=f"Drew {width}x{height} figlet ({font})")
+
+    def _cmd_pipe(self, args: list[str]) -> ModeResult:
+        """
+        Execute a shell command and write output to canvas.
+
+        Usage:
+            :pipe COMMAND          - Execute command, write stdout at cursor
+        """
+        if not args:
+            return ModeResult(message="Usage: pipe COMMAND...")
+
+        command = " ".join(args)
+
+        # Execute command
+        result = pipe_command(command, timeout=10)
+
+        if not result.lines:
+            if result.error:
+                return ModeResult(message=f"Pipe error: {result.error}")
+            return ModeResult(message="Command produced no output")
+
+        # Write to canvas at cursor position
+        cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+        width, height = write_lines_to_canvas(self.canvas, result.lines, cx, cy)
+        self.project.mark_dirty()
+
+        status = "OK" if result.success else f"Exit: {result.error}"
+        return ModeResult(message=f"Piped {height} lines ({status})")
+
+    def _cmd_tools(self, args: list[str]) -> ModeResult:
+        """Show status of external tools."""
+        status = get_tool_status()
+        parts = [f"{name}: {'OK' if available else 'NOT FOUND'}"
+                 for name, available in status.items()]
+        return ModeResult(message="Tools: " + ", ".join(parts))
 
 
 def main(stdscr: "curses.window", args: argparse.Namespace) -> None:
