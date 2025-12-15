@@ -362,8 +362,9 @@ class Application:
             mode = self.state_machine.mode
 
             if mode == Mode.NAV or mode == Mode.EDIT:
-                # Move cursor
+                # Move cursor and ensure it stays visible (auto-pan)
                 self.viewport.move_cursor(dx, dy)
+                self.viewport.ensure_cursor_visible(margin=self.mode_config.scroll_margin)
             elif mode == Mode.PAN:
                 # Pan viewport (cursor follows)
                 self.viewport.pan(dx, dy)
@@ -372,14 +373,14 @@ class Application:
         buttons = self.joystick.get_button_presses()
         for btn in buttons:
             if btn == 0:  # A button - confirm/select
-                # In NAV mode, could enter edit mode
+                # In NAV mode, enter edit mode
                 if self.state_machine.mode == Mode.NAV:
-                    self.state_machine.mode = Mode.EDIT
+                    self.state_machine.set_mode(Mode.EDIT)
                     self._show_message("-- EDIT --")
             elif btn == 1:  # B button - back/escape
-                # Exit current mode
+                # Exit current mode back to NAV
                 if self.state_machine.mode != Mode.NAV:
-                    self.state_machine.mode = Mode.NAV
+                    self.state_machine.set_mode(Mode.NAV)
                     self._show_message("")
 
     def _execute_external_command(self, command: str) -> ModeResult:
