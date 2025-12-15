@@ -16,4 +16,8 @@ import curses
 
 if __name__ == "__main__":
     args = parse_args()
-    curses.wrapper(lambda stdscr: main(stdscr, args))
+    try:
+        curses.wrapper(lambda stdscr: main(stdscr, args))
+    except KeyboardInterrupt:
+        # Graceful exit on Ctrl+C
+        print("\nExiting...")
