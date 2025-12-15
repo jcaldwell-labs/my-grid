@@ -99,7 +99,7 @@ class VisualAutoDemo(Application):
     def _execute_command(self, command_str):
         """Execute a command string."""
         from modes import ModeResult
-        result = self.state_machine.execute_command(command_str)
+        result = self.state_machine._execute_command(command_str)
         if result.message:
             self._show_message(result.message)
 

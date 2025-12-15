@@ -28,7 +28,7 @@ Type "cd ~/projects/active/my-grid"
 Enter
 Sleep 300ms
 
-Type "python demo/visual_auto_demo.py 75"
+Type "python3 demo/visual_auto_demo.py 75"
 Enter
 
 # Wait for full demo (75s + 10s buffer)
