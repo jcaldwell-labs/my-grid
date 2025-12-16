@@ -125,9 +125,10 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 | STATIC | Plain text region (default) | `:zone create NAME X Y W H` |
 | PIPE | One-shot command output | `:zone pipe NAME W H CMD` |
 | WATCH | Periodic refresh command | `:zone watch NAME W H INTERVAL CMD` |
-| PTY | Live terminal session | `:zone pty NAME W H [SHELL]` |
-| FIFO | Named pipe listener (planned) | - |
-| SOCKET | Network listener (planned) | - |
+| PTY | Live terminal session (Unix) | `:zone pty NAME W H [SHELL]` |
+| FIFO | Named pipe listener (Unix) | `:zone fifo NAME W H PATH` |
+| SOCKET | TCP port listener | `:zone socket NAME W H PORT` |
+| CLIPBOARD | Yank/paste buffer | `:clipboard zone` |
 
 ### Zone Commands
 
@@ -137,7 +138,9 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 | `:zone create NAME here W H` | Create zone at cursor position |
 | `:zone pipe NAME W H CMD` | Create pipe zone, execute command once |
 | `:zone watch NAME W H 5s CMD` | Create watch zone, refresh every 5 seconds |
-| `:zone pty NAME W H [SHELL]` | Create PTY zone with live terminal |
+| `:zone pty NAME W H [SHELL]` | Create PTY zone with live terminal (Unix) |
+| `:zone fifo NAME W H PATH` | Create FIFO zone listening on named pipe (Unix) |
+| `:zone socket NAME W H PORT` | Create socket zone listening on TCP port |
 | `:zone delete NAME` | Delete zone |
 | `:zone goto NAME` | Jump cursor to zone center |
 | `:zone info [NAME]` | Show zone info |
@@ -171,9 +174,17 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 
 # Send commands to PTY
 :zone send TERM ls -la\n
+
+# FIFO zone - receive data from external processes (Unix only)
+:zone fifo EVENTS 50 15 /tmp/my-events.fifo
+# Then from another terminal: echo "New event" > /tmp/my-events.fifo
+
+# Socket zone - receive data over TCP
+:zone socket MESSAGES 60 20 9876
+# Then from another terminal: echo "Hello" | nc localhost 9876
 ```
 
-Zones display with borders showing type indicator: `[P]` for pipe, `[W]` for watch, `[T]` for PTY, etc.
+Zones display with borders showing type indicator: `[P]` for pipe, `[W]` for watch, `[T]` for PTY, `[F]` for FIFO, `[S]` for socket, etc.
 
 ### PTY Focus Model (Unix/WSL only)
 
@@ -423,3 +434,97 @@ $writer = New-Object System.IO.StreamWriter($stream)
 $writer.WriteLine(":text Hello from Windows")
 $writer.Flush()
 ```
+
+---
+
+## Claude Code Integration
+
+my-grid can integrate with Claude Code sessions to create a visual workspace for AI-assisted development. Several integration patterns are available.
+
+### Pattern 1: Socket Zone for Claude Output
+
+Create a socket zone to receive Claude Code output:
+
+```bash
+# In my-grid
+:zone socket CLAUDE 80 30 9999
+
+# In Claude Code hook (.claude/hooks/post-response.sh)
+#!/bin/bash
+echo "$CLAUDE_RESPONSE" | nc localhost 9999
+```
+
+### Pattern 2: FIFO Zone (Unix/WSL)
+
+Use a named pipe for one-way communication:
+
+```bash
+# In my-grid
+:zone fifo CLAUDE 80 30 /tmp/claude-output.fifo
+
+# From Claude Code or scripts
+echo "Response content here" > /tmp/claude-output.fifo
+```
+
+### Pattern 3: API Server for Bidirectional Control
+
+Use the API server for full control from external processes:
+
+```bash
+# Start my-grid with server
+python mygrid.py --server --port 8765
+
+# From Claude Code - send commands
+echo ':zone pipe STATUS 40 10 git status' | nc localhost 8765
+echo ':text Generated code here' | nc localhost 8765
+
+# Query state
+echo ':status' | nc localhost 8765
+```
+
+### Pattern 4: Workspace Layout
+
+Create a dedicated Claude Code workspace layout:
+
+```yaml
+# ~/.config/mygrid/layouts/claude-code.yaml
+name: claude-code
+description: Claude Code integration workspace
+zones:
+  - name: CLAUDE
+    type: socket
+    x: 0
+    y: 0
+    width: 80
+    height: 25
+    port: 9999
+    bookmark: "c"
+    description: "Claude responses"
+
+  - name: CONTEXT
+    type: static
+    x: 85
+    y: 0
+    width: 50
+    height: 15
+    bookmark: "x"
+    description: "Context notes"
+
+  - name: TERMINAL
+    type: pty
+    x: 85
+    y: 16
+    width: 50
+    height: 12
+    bookmark: "t"
+    description: "Terminal"
+```
+
+Load with: `:layout load claude-code`
+
+### Integration Tips
+
+1. **WSL + Windows**: Socket zones work across the WSL boundary - run my-grid in WSL, connect from Windows
+2. **Multiple zones**: Create separate zones for different Claude tools or contexts
+3. **Bookmarks**: Use bookmarks for quick navigation between Claude output and your work areas
+4. **Persistence**: Layouts preserve your integration setup across sessions

@@ -1289,3 +1289,312 @@ class Clipboard:
             return False
         except Exception:
             return False
+
+
+# =============================================================================
+# FIFO HANDLER - Named pipe listener for external process integration
+# =============================================================================
+
+import stat
+import socket as sock_module
+
+class FIFOHandler:
+    """
+    Handles FIFO (named pipe) zones for receiving data from external processes.
+
+    Features:
+    - Creates named pipe at specified path
+    - Background thread reads from FIFO
+    - Displays incoming data in zone
+    - Clean resource cleanup
+    """
+
+    def __init__(self, zone_manager: ZoneManager):
+        self.zone_manager = zone_manager
+        self._fifo_data: dict[str, dict] = {}  # zone_name -> {path, thread, stop_event}
+        self._lock = threading.Lock()
+
+    def create_fifo(self, zone: Zone) -> bool:
+        """
+        Create a FIFO listener for a zone.
+
+        Returns True on success, False on error.
+        """
+        if zone.config.zone_type != ZoneType.FIFO:
+            return False
+
+        if not zone.config.path:
+            zone.set_content(["[FIFO error: no path specified]"])
+            return False
+
+        # FIFO only available on Unix
+        if os.name == 'nt':
+            zone.set_content(["[FIFO not available on Windows]"])
+            return False
+
+        key = zone.name.lower()
+        fifo_path = zone.config.path
+
+        # Clean up existing FIFO if any
+        self.stop_fifo(zone.name)
+
+        try:
+            # Create FIFO if it doesn't exist
+            if os.path.exists(fifo_path):
+                if not stat.S_ISFIFO(os.stat(fifo_path).st_mode):
+                    zone.set_content([f"[Path exists but is not a FIFO: {fifo_path}]"])
+                    return False
+            else:
+                os.mkfifo(fifo_path, 0o666)
+
+            # Start reader thread
+            stop_event = threading.Event()
+            reader_thread = threading.Thread(
+                target=self._fifo_reader,
+                args=(zone, fifo_path, stop_event),
+                daemon=True,
+                name=f"fifo-{key}"
+            )
+
+            with self._lock:
+                self._fifo_data[key] = {
+                    'path': fifo_path,
+                    'thread': reader_thread,
+                    'stop_event': stop_event,
+                    'created': True  # We created this FIFO
+                }
+
+            reader_thread.start()
+            zone.set_content([f"[Listening on {fifo_path}]"])
+            return True
+
+        except Exception as e:
+            zone.set_content([f"[FIFO error: {e}]"])
+            return False
+
+    def _fifo_reader(self, zone: Zone, path: str, stop_event: threading.Event) -> None:
+        """Background thread that reads from FIFO."""
+        content_h = zone.height - 2
+
+        while not stop_event.is_set():
+            try:
+                # Open FIFO for reading (blocks until writer connects)
+                # Use non-blocking with select for responsive shutdown
+                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+
+                try:
+                    while not stop_event.is_set():
+                        # Use select with timeout
+                        readable, _, _ = select.select([fd], [], [], 0.5)
+
+                        if not readable:
+                            continue
+
+                        data = os.read(fd, 4096)
+                        if not data:
+                            # EOF - writer closed, reopen
+                            break
+
+                        # Process incoming data
+                        text = data.decode('utf-8', errors='replace')
+                        for line in text.split('\n'):
+                            if line:  # Skip empty lines
+                                zone.append_content(line.rstrip())
+
+                        # Trim to fit zone height
+                        if len(zone.content_lines) > content_h:
+                            zone._content_lines = zone._content_lines[-content_h:]
+
+                finally:
+                    os.close(fd)
+
+            except OSError as e:
+                if stop_event.is_set():
+                    break
+                # Brief sleep before retry
+                stop_event.wait(1.0)
+            except Exception as e:
+                zone.append_content(f"[FIFO error: {e}]")
+                break
+
+    def stop_fifo(self, name: str) -> None:
+        """Stop FIFO listener and clean up."""
+        key = name.lower()
+
+        with self._lock:
+            data = self._fifo_data.pop(key, None)
+
+        if data:
+            # Signal thread to stop
+            data['stop_event'].set()
+
+            # Optionally remove FIFO file if we created it
+            if data.get('created'):
+                try:
+                    os.unlink(data['path'])
+                except OSError:
+                    pass
+
+    def stop_all(self) -> None:
+        """Stop all FIFO listeners."""
+        with self._lock:
+            keys = list(self._fifo_data.keys())
+
+        for key in keys:
+            self.stop_fifo(key)
+
+    def is_active(self, name: str) -> bool:
+        """Check if FIFO is active for a zone."""
+        key = name.lower()
+        with self._lock:
+            return key in self._fifo_data
+
+
+# =============================================================================
+# SOCKET HANDLER - TCP listener for network integration
+# =============================================================================
+
+class SocketHandler:
+    """
+    Handles Socket zones for receiving data over TCP.
+
+    Features:
+    - Listens on specified TCP port
+    - Accepts connections and reads data
+    - Displays incoming data in zone
+    - Clean resource cleanup
+    """
+
+    def __init__(self, zone_manager: ZoneManager):
+        self.zone_manager = zone_manager
+        self._socket_data: dict[str, dict] = {}  # zone_name -> {socket, thread, stop_event}
+        self._lock = threading.Lock()
+
+    def create_socket(self, zone: Zone) -> bool:
+        """
+        Create a socket listener for a zone.
+
+        Returns True on success, False on error.
+        """
+        if zone.config.zone_type != ZoneType.SOCKET:
+            return False
+
+        if not zone.config.port:
+            zone.set_content(["[Socket error: no port specified]"])
+            return False
+
+        key = zone.name.lower()
+        port = zone.config.port
+
+        # Clean up existing socket if any
+        self.stop_socket(zone.name)
+
+        try:
+            # Create and bind socket
+            server = sock_module.socket(sock_module.AF_INET, sock_module.SOCK_STREAM)
+            server.setsockopt(sock_module.SOL_SOCKET, sock_module.SO_REUSEADDR, 1)
+            server.settimeout(1.0)  # For responsive shutdown
+            server.bind(('0.0.0.0', port))
+            server.listen(5)
+
+            # Start listener thread
+            stop_event = threading.Event()
+            listener_thread = threading.Thread(
+                target=self._socket_listener,
+                args=(zone, server, stop_event),
+                daemon=True,
+                name=f"socket-{key}"
+            )
+
+            with self._lock:
+                self._socket_data[key] = {
+                    'socket': server,
+                    'port': port,
+                    'thread': listener_thread,
+                    'stop_event': stop_event
+                }
+
+            listener_thread.start()
+            zone.set_content([f"[Listening on port {port}]"])
+            return True
+
+        except Exception as e:
+            zone.set_content([f"[Socket error: {e}]"])
+            return False
+
+    def _socket_listener(self, zone: Zone, server: sock_module.socket, stop_event: threading.Event) -> None:
+        """Background thread that accepts connections and reads data."""
+        content_h = zone.height - 2
+
+        while not stop_event.is_set():
+            try:
+                # Accept connection (with timeout for responsive shutdown)
+                try:
+                    client, addr = server.accept()
+                except sock_module.timeout:
+                    continue
+
+                client.settimeout(5.0)
+
+                try:
+                    # Read data from client
+                    data = b""
+                    while True:
+                        chunk = client.recv(4096)
+                        if not chunk:
+                            break
+                        data += chunk
+                        if len(data) > 65536:  # Limit to 64KB
+                            break
+
+                    if data:
+                        text = data.decode('utf-8', errors='replace')
+                        # Add source info
+                        zone.append_content(f"[{addr[0]}:{addr[1]}]")
+                        for line in text.split('\n'):
+                            if line.strip():
+                                zone.append_content(line.rstrip())
+
+                        # Trim to fit zone height
+                        if len(zone.content_lines) > content_h:
+                            zone._content_lines = zone._content_lines[-content_h:]
+
+                finally:
+                    client.close()
+
+            except sock_module.timeout:
+                continue
+            except Exception as e:
+                if not stop_event.is_set():
+                    zone.append_content(f"[Socket error: {e}]")
+
+    def stop_socket(self, name: str) -> None:
+        """Stop socket listener and clean up."""
+        key = name.lower()
+
+        with self._lock:
+            data = self._socket_data.pop(key, None)
+
+        if data:
+            # Signal thread to stop
+            data['stop_event'].set()
+
+            # Close socket
+            try:
+                data['socket'].close()
+            except OSError:
+                pass
+
+    def stop_all(self) -> None:
+        """Stop all socket listeners."""
+        with self._lock:
+            keys = list(self._socket_data.keys())
+
+        for key in keys:
+            self.stop_socket(key)
+
+    def is_active(self, name: str) -> bool:
+        """Check if socket is active for a zone."""
+        key = name.lower()
+        with self._lock:
+            return key in self._socket_data

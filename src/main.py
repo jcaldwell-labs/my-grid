@@ -20,7 +20,11 @@ from modes import Mode, ModeConfig, ModeStateMachine, ModeResult
 from project import Project, add_recent_project, suggest_filename
 from command_queue import CommandQueue, CommandResponse, send_response
 from server import APIServer, ServerConfig
-from zones import Zone, ZoneManager, ZoneExecutor, ZoneType, PTYHandler, PTY_AVAILABLE, Clipboard
+from zones import (
+    Zone, ZoneManager, ZoneExecutor, ZoneType, ZoneConfig,
+    PTYHandler, PTY_AVAILABLE, Clipboard,
+    FIFOHandler, SocketHandler
+)
 from layouts import LayoutManager, install_default_layouts
 from external import (
     tool_available, get_tool_status,
@@ -58,6 +62,8 @@ class Application:
         self.pty_handler = PTYHandler(self.zone_manager)
         self.layout_manager = LayoutManager()
         self.clipboard = Clipboard()
+        self.fifo_handler = FIFOHandler(self.zone_manager)
+        self.socket_handler = SocketHandler(self.zone_manager)
 
         # Install default layouts on first run
         install_default_layouts()
@@ -379,6 +385,10 @@ class Application:
             self.zone_executor.stop_all()
             # Clean up PTY sessions
             self.pty_handler.stop_all()
+            # Clean up FIFO listeners
+            self.fifo_handler.stop_all()
+            # Clean up socket listeners
+            self.socket_handler.stop_all()
 
     def _process_external_commands(self) -> None:
         """Process commands from the external API queue."""
@@ -921,6 +931,11 @@ class Application:
             :zone refresh NAME                - Refresh pipe/watch zone
             :zone pause NAME                  - Pause watch zone
             :zone resume NAME                 - Resume watch zone
+            :zone pty NAME W H [SHELL]        - Create PTY zone (Unix only)
+            :zone send NAME TEXT              - Send text to PTY zone
+            :zone focus NAME                  - Focus PTY zone
+            :zone fifo NAME W H PATH          - Create FIFO zone (Unix only)
+            :zone socket NAME W H PORT        - Create socket zone
         """
         if not args:
             return ModeResult(
@@ -1205,9 +1220,75 @@ class Application:
             self._focused_pty = name
             return ModeResult(message=f"PTY focused: {name}")
 
+        # :zone fifo NAME W H PATH
+        elif subcmd == "fifo":
+            import os as os_check
+            if os_check.name == 'nt':
+                return ModeResult(message="FIFO not available on Windows (requires Unix)")
+
+            if len(args) < 5:
+                return ModeResult(message="Usage: zone fifo NAME W H PATH")
+            name = args[1]
+            try:
+                w, h = int(args[2]), int(args[3])
+                path = args[4]
+            except (ValueError, IndexError):
+                return ModeResult(message="Invalid width/height")
+
+            x = self.viewport.cursor.x
+            y = self.viewport.cursor.y
+
+            try:
+                # Create zone with FIFO config
+                config = ZoneConfig(zone_type=ZoneType.FIFO, path=path)
+                zone = self.zone_manager.create(
+                    name, x, y, w, h, config=config,
+                    description=f"FIFO: {path}"
+                )
+                # Start FIFO listener
+                if self.fifo_handler.create_fifo(zone):
+                    self.project.mark_dirty()
+                    return ModeResult(message=f"Created FIFO zone '{name}' listening on {path}")
+                else:
+                    self.zone_manager.delete(name)
+                    return ModeResult(message=f"Failed to create FIFO for zone '{name}'")
+            except ValueError as e:
+                return ModeResult(message=str(e))
+
+        # :zone socket NAME W H PORT
+        elif subcmd == "socket":
+            if len(args) < 5:
+                return ModeResult(message="Usage: zone socket NAME W H PORT")
+            name = args[1]
+            try:
+                w, h = int(args[2]), int(args[3])
+                port = int(args[4])
+            except (ValueError, IndexError):
+                return ModeResult(message="Invalid width/height/port")
+
+            x = self.viewport.cursor.x
+            y = self.viewport.cursor.y
+
+            try:
+                # Create zone with socket config
+                config = ZoneConfig(zone_type=ZoneType.SOCKET, port=port)
+                zone = self.zone_manager.create(
+                    name, x, y, w, h, config=config,
+                    description=f"Socket: port {port}"
+                )
+                # Start socket listener
+                if self.socket_handler.create_socket(zone):
+                    self.project.mark_dirty()
+                    return ModeResult(message=f"Created socket zone '{name}' listening on port {port}")
+                else:
+                    self.zone_manager.delete(name)
+                    return ModeResult(message=f"Failed to create socket for zone '{name}'")
+            except ValueError as e:
+                return ModeResult(message=str(e))
+
         else:
             return ModeResult(
-                message="Usage: zone create|delete|goto|pipe|watch|pty|send|focus|..."
+                message="Usage: zone create|delete|goto|pipe|watch|pty|fifo|socket|..."
             )
 
     def _cmd_zones(self, args: list[str]) -> ModeResult:
