@@ -21,6 +21,60 @@ from typing import Iterator, Any
 import math
 
 
+# Border style character sets
+BORDER_STYLES = {
+    "ascii": {
+        "tl": "+", "tr": "+", "bl": "+", "br": "+",
+        "horiz": "-", "vert": "|",
+        "focused_tl": "#", "focused_tr": "#", "focused_bl": "#", "focused_br": "#",
+        "focused_horiz": "=", "focused_vert": "#",
+    },
+    "unicode": {
+        "tl": "┌", "tr": "┐", "bl": "└", "br": "┘",
+        "horiz": "─", "vert": "│",
+        "focused_tl": "╔", "focused_tr": "╗", "focused_bl": "╚", "focused_br": "╝",
+        "focused_horiz": "═", "focused_vert": "║",
+    },
+    "rounded": {
+        "tl": "╭", "tr": "╮", "bl": "╰", "br": "╯",
+        "horiz": "─", "vert": "│",
+        "focused_tl": "╔", "focused_tr": "╗", "focused_bl": "╚", "focused_br": "╝",
+        "focused_horiz": "═", "focused_vert": "║",
+    },
+    "double": {
+        "tl": "╔", "tr": "╗", "bl": "╚", "br": "╝",
+        "horiz": "═", "vert": "║",
+        "focused_tl": "╬", "focused_tr": "╬", "focused_bl": "╬", "focused_br": "╬",
+        "focused_horiz": "═", "focused_vert": "║",
+    },
+    "heavy": {
+        "tl": "┏", "tr": "┓", "bl": "┗", "br": "┛",
+        "horiz": "━", "vert": "┃",
+        "focused_tl": "╋", "focused_tr": "╋", "focused_bl": "╋", "focused_br": "╋",
+        "focused_horiz": "━", "focused_vert": "┃",
+    },
+}
+
+# Current border style (can be changed globally)
+_current_border_style = "ascii"
+
+def get_border_style() -> str:
+    """Get current border style name."""
+    return _current_border_style
+
+def set_border_style(style: str) -> bool:
+    """Set border style. Returns True if valid style."""
+    global _current_border_style
+    if style in BORDER_STYLES:
+        _current_border_style = style
+        return True
+    return False
+
+def list_border_styles() -> list[str]:
+    """List available border styles."""
+    return list(BORDER_STYLES.keys())
+
+
 class ZoneType(Enum):
     """Types of zones with different behaviors."""
     STATIC = "static"       # Plain text region (default)
@@ -206,14 +260,22 @@ class Zone:
         x, y = self.x, self.y
         w, h = self.width, self.height
 
-        # Corner characters
-        tl, tr, bl, br = '+', '+', '+', '+'
-        horiz, vert = '-', '|'
-
+        # Get border characters from current style
+        style = BORDER_STYLES.get(_current_border_style, BORDER_STYLES["ascii"])
         if focused:
-            # Use double-line for focused zone
-            tl, tr, bl, br = '#', '#', '#', '#'
-            horiz, vert = '=', '#'
+            tl = style["focused_tl"]
+            tr = style["focused_tr"]
+            bl = style["focused_bl"]
+            br = style["focused_br"]
+            horiz = style["focused_horiz"]
+            vert = style["focused_vert"]
+        else:
+            tl = style["tl"]
+            tr = style["tr"]
+            bl = style["bl"]
+            br = style["br"]
+            horiz = style["horiz"]
+            vert = style["vert"]
 
         # Top border with zone info
         header = f"[{self.type_indicator()}] {self.name}"
