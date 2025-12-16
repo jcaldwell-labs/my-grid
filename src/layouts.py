@@ -477,6 +477,264 @@ DEFAULT_LAYOUTS = {
             ),
         ],
     ),
+    "dashboard": Layout(
+        name="dashboard",
+        description="Live system dashboard with event stream",
+        zones=[
+            LayoutZone(
+                name="TIME",
+                zone_type="watch",
+                x=0, y=0, width=40, height=6,
+                command="date '+%A, %B %d, %Y%n%H:%M:%S %Z'; echo '---'; uptime -p",
+                interval=1,
+                bookmark="t",
+                description="Current time and uptime"
+            ),
+            LayoutZone(
+                name="MEMORY",
+                zone_type="watch",
+                x=0, y=7, width=40, height=8,
+                command="free -h",
+                interval=5,
+                bookmark="m",
+                description="Memory usage"
+            ),
+            LayoutZone(
+                name="DISK",
+                zone_type="watch",
+                x=0, y=16, width=40, height=10,
+                command="df -h / /home 2>/dev/null | grep -v tmpfs || df -h | head -5",
+                interval=30,
+                bookmark="d",
+                description="Disk usage"
+            ),
+            LayoutZone(
+                name="PROCESSES",
+                zone_type="watch",
+                x=45, y=0, width=60, height=15,
+                command="ps aux --sort=-%mem | head -12",
+                interval=5,
+                bookmark="p",
+                description="Top processes by memory"
+            ),
+            LayoutZone(
+                name="NETWORK",
+                zone_type="watch",
+                x=45, y=16, width=60, height=10,
+                command="ss -s 2>/dev/null || netstat -s | head -10",
+                interval=10,
+                bookmark="n",
+                description="Network statistics"
+            ),
+        ],
+    ),
+    "logs": Layout(
+        name="logs",
+        description="Multi-source log aggregation",
+        zones=[
+            LayoutZone(
+                name="SYSLOG",
+                zone_type="watch",
+                x=0, y=0, width=80, height=12,
+                command="journalctl -n 10 --no-pager 2>/dev/null || tail -10 /var/log/syslog 2>/dev/null || echo 'No syslog access'",
+                interval=5,
+                bookmark="s",
+                description="System log"
+            ),
+            LayoutZone(
+                name="AUTH",
+                zone_type="watch",
+                x=0, y=13, width=80, height=10,
+                command="journalctl -n 8 -t sshd --no-pager 2>/dev/null || tail -8 /var/log/auth.log 2>/dev/null || echo 'No auth log'",
+                interval=10,
+                bookmark="a",
+                description="Authentication log"
+            ),
+            LayoutZone(
+                name="DMESG",
+                zone_type="watch",
+                x=0, y=24, width=80, height=10,
+                command="dmesg | tail -8",
+                interval=15,
+                bookmark="d",
+                description="Kernel messages"
+            ),
+            LayoutZone(
+                name="EVENTS",
+                zone_type="fifo",
+                x=85, y=0, width=50, height=20,
+                path="/tmp/log-events.fifo",
+                bookmark="e",
+                description="Custom event stream"
+            ),
+            LayoutZone(
+                name="TERMINAL",
+                zone_type="pty",
+                x=85, y=21, width=50, height=14,
+                bookmark="t",
+                description="Log exploration terminal"
+            ),
+        ],
+    ),
+    "docker": Layout(
+        name="docker",
+        description="Docker container monitoring",
+        zones=[
+            LayoutZone(
+                name="CONTAINERS",
+                zone_type="watch",
+                x=0, y=0, width=90, height=12,
+                command="docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null || echo 'Docker not available'",
+                interval=5,
+                bookmark="c",
+                description="Running containers"
+            ),
+            LayoutZone(
+                name="STATS",
+                zone_type="watch",
+                x=0, y=13, width=90, height=12,
+                command="docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}' 2>/dev/null || echo 'Docker not available'",
+                interval=5,
+                bookmark="s",
+                description="Container stats"
+            ),
+            LayoutZone(
+                name="IMAGES",
+                zone_type="watch",
+                x=0, y=26, width=90, height=8,
+                command="docker images --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}' | head -8 2>/dev/null",
+                interval=30,
+                bookmark="i",
+                description="Docker images"
+            ),
+            LayoutZone(
+                name="TERMINAL",
+                zone_type="pty",
+                x=95, y=0, width=60, height=34,
+                bookmark="t",
+                description="Docker CLI terminal"
+            ),
+        ],
+    ),
+    "network": Layout(
+        name="network",
+        description="Network monitoring and diagnostics",
+        zones=[
+            LayoutZone(
+                name="INTERFACES",
+                zone_type="watch",
+                x=0, y=0, width=50, height=12,
+                command="ip -br addr 2>/dev/null || ifconfig | grep -E '^[a-z]|inet '",
+                interval=10,
+                bookmark="i",
+                description="Network interfaces"
+            ),
+            LayoutZone(
+                name="CONNECTIONS",
+                zone_type="watch",
+                x=0, y=13, width=50, height=15,
+                command="ss -tuln 2>/dev/null | head -14 || netstat -tuln | head -14",
+                interval=5,
+                bookmark="c",
+                description="Active connections"
+            ),
+            LayoutZone(
+                name="ROUTES",
+                zone_type="watch",
+                x=55, y=0, width=55, height=10,
+                command="ip route 2>/dev/null || netstat -rn | head -10",
+                interval=30,
+                bookmark="r",
+                description="Routing table"
+            ),
+            LayoutZone(
+                name="DNS",
+                zone_type="watch",
+                x=55, y=11, width=55, height=8,
+                command="cat /etc/resolv.conf | grep -v '^#'",
+                interval=60,
+                bookmark="d",
+                description="DNS configuration"
+            ),
+            LayoutZone(
+                name="TERMINAL",
+                zone_type="pty",
+                x=55, y=20, width=55, height=10,
+                bookmark="t",
+                description="Network diagnostics terminal"
+            ),
+        ],
+    ),
+    "python-dev": Layout(
+        name="python-dev",
+        description="Python development workspace",
+        zones=[
+            LayoutZone(
+                name="GIT",
+                zone_type="watch",
+                x=0, y=0, width=45, height=10,
+                command="git status --short 2>/dev/null || echo 'Not a git repo'",
+                interval=5,
+                bookmark="g",
+                description="Git status"
+            ),
+            LayoutZone(
+                name="TESTS",
+                zone_type="watch",
+                x=0, y=11, width=45, height=12,
+                command="python -m pytest --co -q 2>/dev/null | head -10 || echo 'No pytest'",
+                interval=30,
+                bookmark="t",
+                description="Test discovery"
+            ),
+            LayoutZone(
+                name="VENV",
+                zone_type="watch",
+                x=0, y=24, width=45, height=6,
+                command="echo \"Python: $(python --version 2>&1)\"; echo \"Venv: ${VIRTUAL_ENV:-none}\"",
+                interval=60,
+                bookmark="v",
+                description="Python environment"
+            ),
+            LayoutZone(
+                name="REPL",
+                zone_type="pty",
+                x=50, y=0, width=60, height=15,
+                shell="python3",
+                bookmark="p",
+                description="Python REPL"
+            ),
+            LayoutZone(
+                name="TERMINAL",
+                zone_type="pty",
+                x=50, y=16, width=60, height=15,
+                bookmark="e",
+                description="Editor/shell terminal"
+            ),
+        ],
+    ),
+    "minimal": Layout(
+        name="minimal",
+        description="Simple two-zone workspace",
+        zones=[
+            LayoutZone(
+                name="STATUS",
+                zone_type="watch",
+                x=0, y=0, width=40, height=10,
+                command="echo '=== System ===' && uptime && echo && free -h | head -2",
+                interval=10,
+                bookmark="s",
+                description="Quick system status"
+            ),
+            LayoutZone(
+                name="TERMINAL",
+                zone_type="pty",
+                x=45, y=0, width=70, height=25,
+                bookmark="t",
+                description="Main terminal"
+            ),
+        ],
+    ),
 }
 
 
