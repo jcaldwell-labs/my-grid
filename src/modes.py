@@ -582,6 +582,8 @@ class ModeStateMachine:
         self.register_command("origin", self._cmd_origin)
         self.register_command("clear", self._cmd_clear)
         self.register_command("help", self._cmd_help)
+        self.register_command("?", self._cmd_help)
+        self.register_command("h", self._cmd_help)
         # Bookmark commands
         self.register_command("marks", self._cmd_marks)
         self.register_command("mark", self._cmd_mark)

@@ -574,7 +574,15 @@ class Application:
 
     def _show_help(self) -> None:
         """Show help screen."""
-        help_text = """
+        # Build joystick status line
+        joy_status = ""
+        if self._joystick_enabled and self.joystick.is_connected:
+            info = self.joystick.get_info()
+            joy_status = f"  JOYSTICK: {info['name']} (connected)\n"
+            joy_status += "    D-pad/Stick   - Move cursor       Button A      - Enter EDIT mode\n"
+            joy_status += "    Button B      - Exit to NAV\n"
+
+        help_text = f"""
   my-grid - ASCII Canvas Editor
 
   MODES:
@@ -595,6 +603,7 @@ class Application:
     :goto X Y     - Move to position   :origin here  - Set origin
     :clear        - Clear canvas       :export       - Export as text
     :grid N       - Set grid interval  :rect W H     - Draw rectangle
+    :help / :?    - This help screen
 
   KEYS:
     g / G         - Toggle major/minor grid
@@ -602,7 +611,7 @@ class Application:
     Ctrl+S        - Save               Esc           - Exit mode
     F1            - This help          q             - Quit
 
-  Press any key to continue...
+{joy_status}  Press any key to continue...
 """
         self.stdscr.clear()
         for i, line in enumerate(help_text.strip().split('\n')):
