@@ -20,7 +20,7 @@ from modes import Mode, ModeConfig, ModeStateMachine, ModeResult
 from project import Project, add_recent_project, suggest_filename
 from command_queue import CommandQueue, CommandResponse, send_response
 from server import APIServer, ServerConfig
-from zones import Zone, ZoneManager, ZoneExecutor, ZoneType
+from zones import Zone, ZoneManager, ZoneExecutor, ZoneType, PTYHandler, PTY_AVAILABLE
 from external import (
     tool_available, get_tool_status,
     draw_box, get_boxes_styles,
@@ -54,6 +54,10 @@ class Application:
         self.project = Project()
         self.zone_manager = ZoneManager()
         self.zone_executor = ZoneExecutor(self.zone_manager)
+        self.pty_handler = PTYHandler(self.zone_manager)
+
+        # PTY focus tracking
+        self._focused_pty: str | None = None  # Name of focused PTY zone
 
         # API server components
         self.command_queue = CommandQueue()
@@ -158,6 +162,10 @@ class Application:
         if self._status_message and self._status_message_frames > 0:
             self._status_message_frames -= 1
             return f" {self._status_message}"
+
+        # Show PTY focus mode indicator
+        if self._focused_pty:
+            return f" [PTY] {self._focused_pty} - Press Esc to unfocus"
 
         # Show command buffer in command mode
         if self.state_machine.mode == Mode.COMMAND:
@@ -276,10 +284,31 @@ class Application:
                 if key == curses.KEY_RESIZE:
                     continue
 
+                # If PTY is focused, forward input to PTY
+                if self._focused_pty:
+                    if key == 27:  # Escape - unfocus PTY
+                        self._focused_pty = None
+                        self._show_message("PTY unfocused")
+                    else:
+                        # Forward key to PTY
+                        self._forward_key_to_pty(key)
+                    continue
+
                 # Convert curses key to action
                 event = self._curses_key_to_event(key)
                 if not event:
                     continue
+
+                # Check if Enter pressed in a PTY zone - focus it
+                if event.action == Action.NEWLINE:
+                    current_zone = self.zone_manager.find_at(
+                        self.viewport.cursor.x, self.viewport.cursor.y
+                    )
+                    if current_zone and current_zone.zone_type == ZoneType.PTY:
+                        if self.pty_handler.is_active(current_zone.name):
+                            self._focused_pty = current_zone.name
+                            self._show_message(f"PTY focused: {current_zone.name}")
+                            continue
 
                 # Process through state machine
                 result = self.state_machine.process(event)
@@ -336,6 +365,8 @@ class Application:
                 self.joystick.cleanup()
             # Clean up zone watchers
             self.zone_executor.stop_all()
+            # Clean up PTY sessions
+            self.pty_handler.stop_all()
 
     def _process_external_commands(self) -> None:
         """Process commands from the external API queue."""
@@ -388,6 +419,41 @@ class Application:
                 if self.state_machine.mode != Mode.NAV:
                     self.state_machine.set_mode(Mode.NAV)
                     self._show_message("")
+
+    def _forward_key_to_pty(self, key: int) -> None:
+        """Forward a key press to the focused PTY."""
+        if not self._focused_pty:
+            return
+
+        # Convert curses key codes to terminal sequences
+        if key == curses.KEY_UP:
+            data = '\x1b[A'
+        elif key == curses.KEY_DOWN:
+            data = '\x1b[B'
+        elif key == curses.KEY_RIGHT:
+            data = '\x1b[C'
+        elif key == curses.KEY_LEFT:
+            data = '\x1b[D'
+        elif key == curses.KEY_BACKSPACE or key == 127:
+            data = '\x7f'
+        elif key == curses.KEY_DC:  # Delete
+            data = '\x1b[3~'
+        elif key == curses.KEY_HOME:
+            data = '\x1b[H'
+        elif key == curses.KEY_END:
+            data = '\x1b[F'
+        elif key == 10 or key == 13:  # Enter
+            data = '\n'
+        elif key == 9:  # Tab
+            data = '\t'
+        elif 1 <= key <= 26:  # Ctrl+A through Ctrl+Z
+            data = chr(key)
+        elif 32 <= key <= 126:  # Printable ASCII
+            data = chr(key)
+        else:
+            return  # Unknown key, don't forward
+
+        self.pty_handler.send_input(self._focused_pty, data)
 
     def _execute_external_command(self, command: str) -> ModeResult:
         """Execute a command string from external source."""
@@ -1070,9 +1136,66 @@ class Application:
                 return ModeResult(message=f"Resumed zone '{args[1]}'")
             return ModeResult(message=f"Zone '{args[1]}' not found or not a watch zone")
 
+        # :zone pty NAME W H [SHELL]
+        elif subcmd == "pty":
+            if not PTY_AVAILABLE:
+                return ModeResult(message="PTY not available on this platform (requires Unix)")
+
+            if len(args) < 4:
+                return ModeResult(message="Usage: zone pty NAME W H [SHELL]")
+            name = args[1]
+            try:
+                w, h = int(args[2]), int(args[3])
+                shell = args[4] if len(args) > 4 else "/bin/bash"
+            except (ValueError, IndexError):
+                return ModeResult(message="Invalid width/height")
+
+            x = self.viewport.cursor.x
+            y = self.viewport.cursor.y
+
+            try:
+                zone = self.zone_manager.create_pty(name, x, y, w, h, shell=shell)
+                # Start PTY session
+                if self.pty_handler.create_pty(zone):
+                    self.project.mark_dirty()
+                    return ModeResult(message=f"Created PTY zone '{name}' - press Enter to focus")
+                else:
+                    self.zone_manager.delete(name)
+                    return ModeResult(message=f"Failed to create PTY for zone '{name}'")
+            except ValueError as e:
+                return ModeResult(message=str(e))
+
+        # :zone send NAME TEXT
+        elif subcmd == "send":
+            if len(args) < 3:
+                return ModeResult(message="Usage: zone send NAME TEXT")
+            name = args[1]
+            text = " ".join(args[2:])
+            # Handle escape sequences
+            text = text.replace("\\n", "\n").replace("\\t", "\t")
+
+            if self.pty_handler.send_input(name, text):
+                return ModeResult(message=f"Sent to '{name}'")
+            return ModeResult(message=f"Zone '{name}' not found or not an active PTY")
+
+        # :zone focus NAME
+        elif subcmd == "focus":
+            if len(args) < 2:
+                return ModeResult(message="Usage: zone focus NAME")
+            name = args[1]
+            zone = self.zone_manager.get(name)
+            if not zone:
+                return ModeResult(message=f"Zone '{name}' not found")
+            if zone.zone_type != ZoneType.PTY:
+                return ModeResult(message=f"Zone '{name}' is not a PTY zone")
+            if not self.pty_handler.is_active(name):
+                return ModeResult(message=f"PTY for zone '{name}' is not active")
+            self._focused_pty = name
+            return ModeResult(message=f"PTY focused: {name}")
+
         else:
             return ModeResult(
-                message="Usage: zone create|delete|goto|pipe|watch|refresh|pause|resume|..."
+                message="Usage: zone create|delete|goto|pipe|watch|pty|send|focus|..."
             )
 
     def _cmd_zones(self, args: list[str]) -> ModeResult:

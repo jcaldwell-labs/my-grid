@@ -124,7 +124,7 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 | STATIC | Plain text region (default) | `:zone create NAME X Y W H` |
 | PIPE | One-shot command output | `:zone pipe NAME W H CMD` |
 | WATCH | Periodic refresh command | `:zone watch NAME W H INTERVAL CMD` |
-| PTY | Live terminal (planned) | - |
+| PTY | Live terminal session | `:zone pty NAME W H [SHELL]` |
 | FIFO | Named pipe listener (planned) | - |
 | SOCKET | Network listener (planned) | - |
 
@@ -136,12 +136,15 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 | `:zone create NAME here W H` | Create zone at cursor position |
 | `:zone pipe NAME W H CMD` | Create pipe zone, execute command once |
 | `:zone watch NAME W H 5s CMD` | Create watch zone, refresh every 5 seconds |
+| `:zone pty NAME W H [SHELL]` | Create PTY zone with live terminal |
 | `:zone delete NAME` | Delete zone |
 | `:zone goto NAME` | Jump cursor to zone center |
 | `:zone info [NAME]` | Show zone info |
 | `:zone refresh NAME` | Manually refresh pipe/watch zone |
 | `:zone pause NAME` | Pause watch zone refresh |
 | `:zone resume NAME` | Resume watch zone refresh |
+| `:zone send NAME TEXT` | Send text to PTY zone |
+| `:zone focus NAME` | Focus PTY zone for keyboard input |
 | `:zones` | List all zones |
 
 ### Examples
@@ -158,9 +161,30 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 
 # Static zone for notes
 :zone create NOTES 0 0 40 20
+
+# Live terminal session (Unix/WSL only)
+:zone pty TERM 80 24
+
+# Python REPL zone
+:zone pty PYTHON 60 20 /usr/bin/python3
+
+# Send commands to PTY
+:zone send TERM ls -la\n
 ```
 
-Zones display with borders showing type indicator: `[P]` for pipe, `[W]` for watch, etc.
+Zones display with borders showing type indicator: `[P]` for pipe, `[W]` for watch, `[T]` for PTY, etc.
+
+### PTY Focus Model (Unix/WSL only)
+
+PTY zones provide live interactive terminals:
+
+1. Create PTY zone: `:zone pty TERM 80 24`
+2. Navigate cursor into the zone
+3. Press **Enter** to focus (or use `:zone focus TERM`)
+4. All keystrokes go directly to the terminal
+5. Press **Escape** to unfocus and return to canvas navigation
+
+Note: PTY zones require Unix-like systems (Linux, macOS, WSL). Not available on native Windows.
 
 ---
 

@@ -787,3 +787,269 @@ class ZoneExecutor:
                 stop_event.set()
             self._stop_events.clear()
             self._watch_threads.clear()
+
+
+# =============================================================================
+# PTY HANDLER - Live terminal embedding for PTY zones
+# =============================================================================
+
+import os
+import sys
+import select
+import signal
+import fcntl
+import struct
+import termios
+
+# Only import pty on Unix-like systems
+try:
+    import pty
+    PTY_AVAILABLE = True
+except ImportError:
+    PTY_AVAILABLE = False
+
+
+class PTYHandler:
+    """
+    Handles PTY (pseudo-terminal) zones with live shell sessions.
+
+    Features:
+    - Spawns shell process connected to PTY
+    - Background thread reads PTY output
+    - Basic ANSI escape sequence handling
+    - Focus mechanism for keyboard forwarding
+    - Clean process shutdown
+    """
+
+    def __init__(self, zone_manager: ZoneManager):
+        self.zone_manager = zone_manager
+        self._pty_data: dict[str, dict] = {}  # zone_name -> {fd, pid, thread, stop_event}
+        self._lock = threading.Lock()
+
+    @property
+    def available(self) -> bool:
+        """Check if PTY is available on this platform."""
+        return PTY_AVAILABLE
+
+    def create_pty(self, zone: Zone) -> bool:
+        """
+        Create a PTY session for a zone.
+
+        Returns True on success, False on error.
+        """
+        if not PTY_AVAILABLE:
+            zone.set_content(["[PTY not available on this platform]"])
+            return False
+
+        if zone.config.zone_type != ZoneType.PTY:
+            return False
+
+        key = zone.name.lower()
+
+        # Clean up existing PTY if any
+        self.stop_pty(zone.name)
+
+        try:
+            # Create PTY master/slave pair
+            master_fd, slave_fd = pty.openpty()
+
+            # Set terminal size based on zone dimensions
+            content_w = zone.width - 2   # Account for border
+            content_h = zone.height - 2
+            self._set_winsize(master_fd, content_h, content_w)
+
+            # Fork process
+            pid = os.fork()
+
+            if pid == 0:
+                # Child process
+                os.close(master_fd)
+                os.setsid()
+
+                # Set up slave as controlling terminal
+                fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
+
+                # Redirect stdin/stdout/stderr to slave
+                os.dup2(slave_fd, 0)
+                os.dup2(slave_fd, 1)
+                os.dup2(slave_fd, 2)
+
+                if slave_fd > 2:
+                    os.close(slave_fd)
+
+                # Set environment
+                env = os.environ.copy()
+                env['TERM'] = 'xterm-256color'
+                env['COLUMNS'] = str(content_w)
+                env['LINES'] = str(content_h)
+
+                # Execute shell
+                shell = zone.config.shell or '/bin/bash'
+                os.execvpe(shell, [shell], env)
+
+            else:
+                # Parent process
+                os.close(slave_fd)
+
+                # Set master to non-blocking
+                flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+                fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+                # Start reader thread
+                stop_event = threading.Event()
+                reader_thread = threading.Thread(
+                    target=self._pty_reader,
+                    args=(zone, master_fd, stop_event),
+                    daemon=True,
+                    name=f"pty-{key}"
+                )
+
+                with self._lock:
+                    self._pty_data[key] = {
+                        'fd': master_fd,
+                        'pid': pid,
+                        'thread': reader_thread,
+                        'stop_event': stop_event
+                    }
+
+                reader_thread.start()
+                return True
+
+        except Exception as e:
+            zone.set_content([f"[PTY error: {e}]"])
+            return False
+
+    def _set_winsize(self, fd: int, rows: int, cols: int) -> None:
+        """Set terminal window size."""
+        winsize = struct.pack('HHHH', rows, cols, 0, 0)
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
+
+    def _pty_reader(self, zone: Zone, fd: int, stop_event: threading.Event) -> None:
+        """Background thread that reads PTY output."""
+        buffer = ""
+        content_h = zone.height - 2
+
+        while not stop_event.is_set():
+            try:
+                # Use select with timeout for responsive shutdown
+                readable, _, _ = select.select([fd], [], [], 0.1)
+
+                if not readable:
+                    continue
+
+                data = os.read(fd, 4096)
+                if not data:
+                    # EOF - process exited
+                    zone.append_content("[Process exited]")
+                    break
+
+                # Decode and process output
+                text = data.decode('utf-8', errors='replace')
+                buffer += text
+
+                # Process complete lines
+                lines = buffer.split('\n')
+                buffer = lines[-1]  # Keep incomplete line in buffer
+
+                for line in lines[:-1]:
+                    # Strip ANSI escape sequences for now (basic handling)
+                    clean_line = self._strip_ansi(line)
+                    zone.append_content(clean_line)
+
+                # Trim to fit zone height (keep most recent)
+                if len(zone.content_lines) > content_h:
+                    zone._content_lines = zone._content_lines[-content_h:]
+
+            except OSError:
+                # FD closed or error
+                break
+            except Exception as e:
+                zone.append_content(f"[Read error: {e}]")
+                break
+
+    def _strip_ansi(self, text: str) -> str:
+        """Strip ANSI escape sequences from text (basic implementation)."""
+        import re
+        # Remove common ANSI sequences
+        ansi_pattern = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]')
+        result = ansi_pattern.sub('', text)
+        # Remove carriage returns
+        result = result.replace('\r', '')
+        return result
+
+    def send_input(self, name: str, text: str) -> bool:
+        """
+        Send input text to a PTY zone.
+
+        Args:
+            name: Zone name
+            text: Text to send (use \\n for newline)
+
+        Returns True on success.
+        """
+        key = name.lower()
+
+        with self._lock:
+            data = self._pty_data.get(key)
+            if not data:
+                return False
+
+            try:
+                os.write(data['fd'], text.encode('utf-8'))
+                return True
+            except OSError:
+                return False
+
+    def resize_pty(self, name: str, rows: int, cols: int) -> bool:
+        """Resize PTY terminal."""
+        key = name.lower()
+
+        with self._lock:
+            data = self._pty_data.get(key)
+            if not data:
+                return False
+
+            try:
+                self._set_winsize(data['fd'], rows, cols)
+                return True
+            except OSError:
+                return False
+
+    def stop_pty(self, name: str) -> None:
+        """Stop PTY session and clean up."""
+        key = name.lower()
+
+        with self._lock:
+            data = self._pty_data.pop(key, None)
+
+        if data:
+            # Signal thread to stop
+            data['stop_event'].set()
+
+            # Close FD
+            try:
+                os.close(data['fd'])
+            except OSError:
+                pass
+
+            # Terminate process
+            try:
+                os.kill(data['pid'], signal.SIGTERM)
+                # Give it a moment, then SIGKILL if needed
+                os.waitpid(data['pid'], os.WNOHANG)
+            except OSError:
+                pass
+
+    def stop_all(self) -> None:
+        """Stop all PTY sessions."""
+        with self._lock:
+            keys = list(self._pty_data.keys())
+
+        for key in keys:
+            self.stop_pty(key)
+
+    def is_active(self, name: str) -> bool:
+        """Check if PTY is active for a zone."""
+        key = name.lower()
+        with self._lock:
+            return key in self._pty_data
