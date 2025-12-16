@@ -457,6 +457,26 @@ class ZoneManager:
         )
         return self.create(name, x, y, width, height, bookmark=bookmark, config=config)
 
+    def create_clipboard(
+        self,
+        name: str,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        bookmark: str | None = None,
+    ) -> Zone:
+        """Create a CLIPBOARD zone for yank/paste operations."""
+        config = ZoneConfig(
+            zone_type=ZoneType.CLIPBOARD,
+        )
+        return self.create(
+            name, x, y, width, height,
+            description="Clipboard buffer",
+            bookmark=bookmark,
+            config=config
+        )
+
     def delete(self, name: str) -> bool:
         """
         Delete a zone by name.
@@ -1053,3 +1073,219 @@ class PTYHandler:
         key = name.lower()
         with self._lock:
             return key in self._pty_data
+
+
+# =============================================================================
+# CLIPBOARD HELPER - Yank/paste operations
+# =============================================================================
+
+class Clipboard:
+    """
+    Helper for clipboard operations within the canvas.
+
+    Can yank regions from canvas, zone content, or arbitrary text.
+    Stores content in an internal buffer and optionally in a CLIPBOARD zone.
+    """
+
+    def __init__(self):
+        self._buffer: list[str] = []
+        self._source: str = ""  # Description of where content came from
+
+    @property
+    def content(self) -> list[str]:
+        """Get clipboard content as list of lines."""
+        return self._buffer.copy()
+
+    @property
+    def text(self) -> str:
+        """Get clipboard content as single string."""
+        return "\n".join(self._buffer)
+
+    @property
+    def source(self) -> str:
+        """Get description of content source."""
+        return self._source
+
+    @property
+    def is_empty(self) -> bool:
+        """Check if clipboard is empty."""
+        return len(self._buffer) == 0 or (len(self._buffer) == 1 and not self._buffer[0])
+
+    def clear(self) -> None:
+        """Clear clipboard contents."""
+        self._buffer = []
+        self._source = ""
+
+    def set_content(self, lines: list[str], source: str = "") -> None:
+        """Set clipboard content directly."""
+        self._buffer = [line for line in lines]
+        self._source = source
+
+    def yank_region(
+        self,
+        canvas,
+        x1: int, y1: int,
+        x2: int, y2: int,
+    ) -> int:
+        """
+        Yank a rectangular region from the canvas.
+
+        Args:
+            canvas: Canvas to yank from
+            x1, y1: Top-left corner
+            x2, y2: Bottom-right corner
+
+        Returns number of lines yanked.
+        """
+        # Ensure x1,y1 is top-left
+        if x1 > x2:
+            x1, x2 = x2, x1
+        if y1 > y2:
+            y1, y2 = y2, y1
+
+        lines = []
+        for y in range(y1, y2 + 1):
+            line = ""
+            for x in range(x1, x2 + 1):
+                char = canvas.get_char(x, y)
+                line += char
+            # Strip trailing spaces but keep line structure
+            lines.append(line.rstrip())
+
+        self._buffer = lines
+        self._source = f"region ({x1},{y1})-({x2},{y2})"
+        return len(lines)
+
+    def yank_zone(self, zone: Zone) -> int:
+        """
+        Yank content from a zone.
+
+        Args:
+            zone: Zone to yank content from
+
+        Returns number of lines yanked.
+        """
+        self._buffer = zone.content_lines.copy()
+        self._source = f"zone {zone.name}"
+        return len(self._buffer)
+
+    def yank_zone_visual(self, zone: Zone, canvas) -> int:
+        """
+        Yank the visual representation of a zone from canvas.
+
+        This yanks what's actually drawn on canvas, including border.
+
+        Args:
+            zone: Zone to yank
+            canvas: Canvas to read from
+
+        Returns number of lines yanked.
+        """
+        return self.yank_region(
+            canvas,
+            zone.x, zone.y,
+            zone.x + zone.width - 1, zone.y + zone.height - 1
+        )
+
+    def paste_to_canvas(
+        self,
+        canvas,
+        x: int, y: int,
+        skip_spaces: bool = False,
+    ) -> tuple[int, int]:
+        """
+        Paste clipboard content to canvas at position.
+
+        Args:
+            canvas: Canvas to paste to
+            x, y: Top-left position for paste
+            skip_spaces: If True, don't overwrite with spaces
+
+        Returns (width, height) of pasted region.
+        """
+        if self.is_empty:
+            return (0, 0)
+
+        max_width = 0
+        for row, line in enumerate(self._buffer):
+            for col, char in enumerate(line):
+                if skip_spaces and char == ' ':
+                    continue
+                canvas.set_char(x + col, y + row, char)
+            max_width = max(max_width, len(line))
+
+        return (max_width, len(self._buffer))
+
+    def update_clipboard_zone(self, zone: Zone) -> None:
+        """Update a CLIPBOARD zone with current buffer content."""
+        if zone.zone_type != ZoneType.CLIPBOARD:
+            return
+        zone.set_content(self._buffer)
+
+    def to_system_clipboard(self) -> bool:
+        """
+        Copy buffer to system clipboard (if available).
+
+        Returns True on success, False if not available.
+        """
+        try:
+            import subprocess
+            text = self.text
+
+            # Try different clipboard commands
+            for cmd in [['xclip', '-selection', 'clipboard'],
+                        ['xsel', '--clipboard', '--input'],
+                        ['pbcopy'],  # macOS
+                        ['clip']]:  # Windows
+                try:
+                    proc = subprocess.run(
+                        cmd,
+                        input=text.encode('utf-8'),
+                        capture_output=True,
+                        timeout=5
+                    )
+                    if proc.returncode == 0:
+                        return True
+                except FileNotFoundError:
+                    continue
+                except Exception:
+                    continue
+            return False
+        except Exception:
+            return False
+
+    def from_system_clipboard(self) -> bool:
+        """
+        Read content from system clipboard (if available).
+
+        Returns True on success, False if not available.
+        """
+        try:
+            import subprocess
+
+            # Try different clipboard commands
+            for cmd in [['xclip', '-selection', 'clipboard', '-o'],
+                        ['xsel', '--clipboard', '--output'],
+                        ['pbpaste'],  # macOS
+                        ['powershell', '-command', 'Get-Clipboard']]:  # Windows
+                try:
+                    proc = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        timeout=5
+                    )
+                    if proc.returncode == 0:
+                        text = proc.stdout.decode('utf-8', errors='replace')
+                        self._buffer = text.split('\n')
+                        # Remove trailing empty line from clipboard
+                        if self._buffer and not self._buffer[-1]:
+                            self._buffer.pop()
+                        self._source = "system clipboard"
+                        return True
+                except FileNotFoundError:
+                    continue
+                except Exception:
+                    continue
+            return False
+        except Exception:
+            return False

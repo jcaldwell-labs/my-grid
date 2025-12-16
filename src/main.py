@@ -20,7 +20,7 @@ from modes import Mode, ModeConfig, ModeStateMachine, ModeResult
 from project import Project, add_recent_project, suggest_filename
 from command_queue import CommandQueue, CommandResponse, send_response
 from server import APIServer, ServerConfig
-from zones import Zone, ZoneManager, ZoneExecutor, ZoneType, PTYHandler, PTY_AVAILABLE
+from zones import Zone, ZoneManager, ZoneExecutor, ZoneType, PTYHandler, PTY_AVAILABLE, Clipboard
 from layouts import LayoutManager, install_default_layouts
 from external import (
     tool_available, get_tool_status,
@@ -57,6 +57,7 @@ class Application:
         self.zone_executor = ZoneExecutor(self.zone_manager)
         self.pty_handler = PTYHandler(self.zone_manager)
         self.layout_manager = LayoutManager()
+        self.clipboard = Clipboard()
 
         # Install default layouts on first run
         install_default_layouts()
@@ -117,6 +118,11 @@ class Application:
         self.state_machine.register_command("pipe", self._cmd_pipe)
         self.state_machine.register_command("tools", self._cmd_tools)
         self.state_machine.register_command("layout", self._cmd_layout)
+        self.state_machine.register_command("yank", self._cmd_yank)
+        self.state_machine.register_command("y", self._cmd_yank)
+        self.state_machine.register_command("paste", self._cmd_paste)
+        self.state_machine.register_command("p", self._cmd_paste)
+        self.state_machine.register_command("clipboard", self._cmd_clipboard)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -1461,6 +1467,133 @@ class Application:
 
         else:
             return ModeResult(message="Usage: layout list|load|save|delete|info ...")
+
+    def _cmd_yank(self, args: list[str]) -> ModeResult:
+        """
+        Yank (copy) content to clipboard.
+
+        Usage:
+            :yank W H           - Yank WxH region at cursor
+            :yank zone NAME     - Yank zone content
+            :yank system        - Yank from system clipboard
+        """
+        if not args:
+            # Default: yank 1x1 at cursor (single character)
+            cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+            char = self.canvas.get_char(cx, cy)
+            self.clipboard.set_content([char], f"char at ({cx},{cy})")
+            return ModeResult(message=f"Yanked: '{char}'")
+
+        subcmd = args[0].lower()
+
+        # :yank zone NAME
+        if subcmd == "zone":
+            if len(args) < 2:
+                return ModeResult(message="Usage: yank zone NAME")
+            name = args[1]
+            zone = self.zone_manager.get(name)
+            if not zone:
+                return ModeResult(message=f"Zone '{name}' not found")
+            lines = self.clipboard.yank_zone(zone)
+            return ModeResult(message=f"Yanked {lines} lines from zone '{name}'")
+
+        # :yank system - read from system clipboard
+        elif subcmd == "system":
+            if self.clipboard.from_system_clipboard():
+                lines = len(self.clipboard.content)
+                return ModeResult(message=f"Yanked {lines} lines from system clipboard")
+            return ModeResult(message="Could not read system clipboard")
+
+        # :yank W H - yank region at cursor
+        else:
+            try:
+                w = int(args[0])
+                h = int(args[1]) if len(args) > 1 else 1
+            except ValueError:
+                return ModeResult(message="Usage: yank W H | yank zone NAME | yank system")
+
+            cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+            lines = self.clipboard.yank_region(
+                self.canvas,
+                cx, cy,
+                cx + w - 1, cy + h - 1
+            )
+            return ModeResult(message=f"Yanked {w}x{h} region ({lines} lines)")
+
+    def _cmd_paste(self, args: list[str]) -> ModeResult:
+        """
+        Paste clipboard content at cursor.
+
+        Usage:
+            :paste              - Paste at cursor
+            :paste system       - Copy to system clipboard
+            :paste skip         - Paste, skipping spaces
+        """
+        if self.clipboard.is_empty:
+            return ModeResult(message="Clipboard is empty")
+
+        # :paste system - copy to system clipboard
+        if args and args[0].lower() == "system":
+            if self.clipboard.to_system_clipboard():
+                return ModeResult(message="Copied to system clipboard")
+            return ModeResult(message="Could not access system clipboard")
+
+        # :paste [skip]
+        skip_spaces = args and args[0].lower() == "skip"
+
+        cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+        w, h = self.clipboard.paste_to_canvas(
+            self.canvas, cx, cy,
+            skip_spaces=skip_spaces
+        )
+
+        if w > 0:
+            self.project.mark_dirty()
+            return ModeResult(message=f"Pasted {w}x{h} from {self.clipboard.source}")
+        return ModeResult(message="Nothing to paste")
+
+    def _cmd_clipboard(self, args: list[str]) -> ModeResult:
+        """
+        Clipboard management.
+
+        Usage:
+            :clipboard          - Show clipboard info
+            :clipboard clear    - Clear clipboard
+            :clipboard zone     - Create clipboard zone at cursor
+        """
+        if not args:
+            # Show clipboard info
+            if self.clipboard.is_empty:
+                return ModeResult(message="Clipboard is empty")
+            lines = len(self.clipboard.content)
+            width = max(len(line) for line in self.clipboard.content) if self.clipboard.content else 0
+            return ModeResult(
+                message=f"Clipboard: {lines} lines, max width {width} (from: {self.clipboard.source})"
+            )
+
+        subcmd = args[0].lower()
+
+        if subcmd == "clear":
+            self.clipboard.clear()
+            return ModeResult(message="Clipboard cleared")
+
+        elif subcmd == "zone":
+            # Create a clipboard zone at cursor
+            name = args[1] if len(args) > 1 else "CLIPBOARD"
+            w = int(args[2]) if len(args) > 2 else 40
+            h = int(args[3]) if len(args) > 3 else 10
+
+            cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+            try:
+                zone = self.zone_manager.create_clipboard(name, cx, cy, w, h)
+                # Update with current clipboard content
+                self.clipboard.update_clipboard_zone(zone)
+                self.project.mark_dirty()
+                return ModeResult(message=f"Created clipboard zone '{name}'")
+            except ValueError as e:
+                return ModeResult(message=str(e))
+
+        return ModeResult(message="Usage: clipboard | clipboard clear | clipboard zone [NAME W H]")
 
 
 def main(stdscr: "curses.window", args: argparse.Namespace) -> None:

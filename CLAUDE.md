@@ -266,6 +266,14 @@ zones:
 | `zone SUBCMD` | - | Zone management (see Zones section) |
 | `zones` | - | List all zones |
 | `layout SUBCMD` | - | Layout management (see Layouts section) |
+| `yank W H` | `y` | Yank region at cursor to clipboard |
+| `yank zone NAME` | - | Yank zone content to clipboard |
+| `yank system` | - | Read from system clipboard |
+| `paste` | `p` | Paste clipboard at cursor |
+| `paste system` | - | Copy clipboard to system clipboard |
+| `clipboard` | - | Show clipboard info |
+| `clipboard clear` | - | Clear clipboard |
+| `clipboard zone` | - | Create clipboard zone |
 | `box [STYLE] TEXT` | - | Draw ASCII box (requires `boxes`) |
 | `figlet [-f FONT] TEXT` | - | Draw ASCII art text (requires `figlet`) |
 | `pipe COMMAND` | - | Execute command, write output at cursor |
