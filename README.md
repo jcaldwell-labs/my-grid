@@ -1,18 +1,61 @@
+# my-grid
 
-this is greenfield project to implement an ascii canvas 
+An ASCII canvas editor with vim-style navigation for terminal-based diagramming.
 
-canvas is essentially a text file but the text file will be bigger than the terminal
+## Features
 
-the nav mode allows moving a cursor in x - y around the screen 
+- **Infinite canvas** - Sparse storage, unlimited space
+- **Vim-style modes** - NAV, EDIT, PAN, COMMAND, MARK
+- **Bookmarks** - Quick navigation with `m`/`'` + key
+- **Zones** - Named regions with dynamic content (pipe, watch, PTY, FIFO, socket)
+- **Layouts** - Save/load workspace configurations
+- **Grid overlay** - Configurable major/minor grid lines
+- **Project files** - JSON save/load, text export/import
 
-grid lines or grid box indicators . or | may be toggled off on to show an origin and 
-configurable distance lines sub-lines etc
+## Quick Start
 
-wasd style nav support
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
-pan mode where wasd have a pointer locked but move the whole viewport
+# Run the editor
+python mygrid.py
 
-easykey binding commands like a litter or key-chord command for edit mode
-edit mode allow "drawing" or "typing" mode 
+# Open existing file
+python mygrid.py project.json
+```
 
+## Key Bindings
 
+| Key | Action |
+|-----|--------|
+| `wasd` / arrows | Move cursor |
+| `WASD` | Fast move (10x) |
+| `i` | Enter edit mode |
+| `p` | Toggle pan mode |
+| `:` | Enter command mode |
+| `m` + key | Set bookmark |
+| `'` + key | Jump to bookmark |
+| `Esc` | Exit current mode |
+| `F1` | Help |
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `:w` | Save project |
+| `:q` | Quit |
+| `:goto X Y` | Move cursor |
+| `:rect W H` | Draw rectangle |
+| `:text MSG` | Write text |
+| `:zone create NAME W H` | Create zone |
+| `:layout load NAME` | Load layout |
+
+## Documentation
+
+- **[CLAUDE.md](CLAUDE.md)** - Full command reference and architecture
+- **[demo/README.md](demo/README.md)** - Demo system for showcases
+
+## License
+
+MIT
