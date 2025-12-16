@@ -20,7 +20,7 @@ from modes import Mode, ModeConfig, ModeStateMachine, ModeResult
 from project import Project, add_recent_project, suggest_filename
 from command_queue import CommandQueue, CommandResponse, send_response
 from server import APIServer, ServerConfig
-from zones import Zone, ZoneManager
+from zones import Zone, ZoneManager, ZoneExecutor, ZoneType
 from external import (
     tool_available, get_tool_status,
     draw_box, get_boxes_styles,
@@ -53,6 +53,7 @@ class Application:
         )
         self.project = Project()
         self.zone_manager = ZoneManager()
+        self.zone_executor = ZoneExecutor(self.zone_manager)
 
         # API server components
         self.command_queue = CommandQueue()
@@ -330,6 +331,8 @@ class Application:
             # Clean up joystick
             if self._joystick_enabled:
                 self.joystick.cleanup()
+            # Clean up zone watchers
+            self.zone_executor.stop_all()
 
     def _process_external_commands(self) -> None:
         """Process commands from the external API queue."""
@@ -832,10 +835,15 @@ class Application:
             :zone move NAME X Y               - Move zone
             :zone link NAME BOOKMARK          - Associate bookmark
             :zone border NAME [style]         - Draw border (uses boxes)
+            :zone pipe NAME W H CMD           - Create pipe zone
+            :zone watch NAME W H INTERVAL CMD - Create watch zone
+            :zone refresh NAME                - Refresh pipe/watch zone
+            :zone pause NAME                  - Pause watch zone
+            :zone resume NAME                 - Resume watch zone
         """
         if not args:
             return ModeResult(
-                message="Usage: zone create|delete|goto|info|rename|resize|move|link|border"
+                message="Usage: zone create|delete|goto|pipe|watch|refresh|..."
             )
 
         subcmd = args[0].lower()
@@ -980,9 +988,88 @@ class Application:
             self.project.mark_dirty()
             return ModeResult(message=f"Drew border for zone '{zone.name}'")
 
+        # :zone pipe NAME W H CMD
+        elif subcmd == "pipe":
+            if len(args) < 5:
+                return ModeResult(message="Usage: zone pipe NAME W H COMMAND")
+            name = args[1]
+            try:
+                w, h = int(args[2]), int(args[3])
+                cmd = " ".join(args[4:])
+            except (ValueError, IndexError):
+                return ModeResult(message="Invalid width/height")
+
+            x = self.viewport.cursor.x
+            y = self.viewport.cursor.y
+
+            try:
+                zone = self.zone_manager.create_pipe(name, x, y, w, h, cmd)
+                # Execute immediately
+                self.zone_executor.execute_pipe(zone)
+                self.project.mark_dirty()
+                return ModeResult(message=f"Created pipe zone '{name}' - {len(zone.content_lines)} lines")
+            except ValueError as e:
+                return ModeResult(message=str(e))
+
+        # :zone watch NAME W H INTERVAL CMD
+        elif subcmd == "watch":
+            if len(args) < 6:
+                return ModeResult(message="Usage: zone watch NAME W H INTERVAL COMMAND")
+            name = args[1]
+            try:
+                w, h = int(args[2]), int(args[3])
+                # Parse interval (e.g., "5s", "10", "1m")
+                interval_str = args[4]
+                if interval_str.endswith("s"):
+                    interval = float(interval_str[:-1])
+                elif interval_str.endswith("m"):
+                    interval = float(interval_str[:-1]) * 60
+                else:
+                    interval = float(interval_str)
+                cmd = " ".join(args[5:])
+            except (ValueError, IndexError):
+                return ModeResult(message="Invalid width/height/interval")
+
+            x = self.viewport.cursor.x
+            y = self.viewport.cursor.y
+
+            try:
+                zone = self.zone_manager.create_watch(name, x, y, w, h, cmd, interval)
+                # Start background refresh
+                self.zone_executor.start_watch(zone)
+                self.project.mark_dirty()
+                return ModeResult(message=f"Created watch zone '{name}' (refresh: {interval}s)")
+            except ValueError as e:
+                return ModeResult(message=str(e))
+
+        # :zone refresh NAME
+        elif subcmd == "refresh":
+            if len(args) < 2:
+                return ModeResult(message="Usage: zone refresh NAME")
+            if self.zone_executor.refresh_zone(args[1]):
+                zone = self.zone_manager.get(args[1])
+                return ModeResult(message=f"Refreshed '{args[1]}' - {len(zone.content_lines)} lines")
+            return ModeResult(message=f"Zone '{args[1]}' not found or not refreshable")
+
+        # :zone pause NAME
+        elif subcmd == "pause":
+            if len(args) < 2:
+                return ModeResult(message="Usage: zone pause NAME")
+            if self.zone_executor.pause_zone(args[1]):
+                return ModeResult(message=f"Paused zone '{args[1]}'")
+            return ModeResult(message=f"Zone '{args[1]}' not found or not a watch zone")
+
+        # :zone resume NAME
+        elif subcmd == "resume":
+            if len(args) < 2:
+                return ModeResult(message="Usage: zone resume NAME")
+            if self.zone_executor.resume_zone(args[1]):
+                return ModeResult(message=f"Resumed zone '{args[1]}'")
+            return ModeResult(message=f"Zone '{args[1]}' not found or not a watch zone")
+
         else:
             return ModeResult(
-                message="Usage: zone create|delete|goto|info|rename|resize|move|link|border"
+                message="Usage: zone create|delete|goto|pipe|watch|refresh|pause|resume|..."
             )
 
     def _cmd_zones(self, args: list[str]) -> ModeResult:
