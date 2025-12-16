@@ -10,12 +10,54 @@ from typing import Iterator
 
 @dataclass
 class Cell:
-    """A single cell in the canvas."""
+    """
+    A single cell in the canvas.
+
+    Color values map to curses color constants:
+    0=black, 1=red, 2=green, 3=yellow, 4=blue, 5=magenta, 6=cyan, 7=white
+    -1=default (terminal default)
+    """
     char: str = ' '
-    # Future: fg_color, bg_color, attributes
+    fg: int = -1  # Foreground color (-1 = default)
+    bg: int = -1  # Background color (-1 = default)
 
     def is_empty(self) -> bool:
         return self.char == ' ' or self.char == ''
+
+    def has_color(self) -> bool:
+        """Check if cell has non-default colors."""
+        return self.fg != -1 or self.bg != -1
+
+
+# Color name to curses color constant mapping
+COLOR_NAMES = {
+    "black": 0,
+    "red": 1,
+    "green": 2,
+    "yellow": 3,
+    "blue": 4,
+    "magenta": 5,
+    "cyan": 6,
+    "white": 7,
+    "default": -1,
+}
+
+# Reverse mapping
+COLOR_NUMBERS = {v: k for k, v in COLOR_NAMES.items()}
+
+
+def parse_color(color_str: str) -> int:
+    """Parse color string to color number. Returns -1 if invalid."""
+    color_str = color_str.lower().strip()
+    if color_str in COLOR_NAMES:
+        return COLOR_NAMES[color_str]
+    try:
+        num = int(color_str)
+        if -1 <= num <= 255:
+            return num
+        return -1
+    except ValueError:
+        return -1
 
 
 @dataclass
@@ -56,17 +98,43 @@ class Canvas:
         """Get character at position. Returns space if not set."""
         return self.get(x, y).char
 
-    def set(self, x: int, y: int, char: str) -> None:
+    def set(self, x: int, y: int, char: str, fg: int = -1, bg: int = -1) -> None:
         """
-        Set character at position.
+        Set character at position with optional colors.
 
-        If char is space/empty, removes the cell to save memory.
+        If char is space/empty and no colors, removes the cell to save memory.
         Only stores the first character if string is longer.
+
+        Args:
+            x, y: Position
+            char: Character to set
+            fg: Foreground color (-1 = default, 0-7 = basic colors)
+            bg: Background color (-1 = default, 0-7 = basic colors)
         """
         if len(char) == 0 or char == ' ':
-            self.clear(x, y)
+            # Keep cell if it has color info
+            if fg != -1 or bg != -1:
+                self._cells[(x, y)] = Cell(char=' ', fg=fg, bg=bg)
+            else:
+                self.clear(x, y)
         else:
-            self._cells[(x, y)] = Cell(char=char[0])
+            self._cells[(x, y)] = Cell(char=char[0], fg=fg, bg=bg)
+
+    def set_color(self, x: int, y: int, fg: int = -1, bg: int = -1) -> None:
+        """
+        Set color for cell at position without changing character.
+
+        If cell doesn't exist and colors are non-default, creates cell with space.
+        """
+        cell = self.get(x, y)
+        if fg != -1 or bg != -1:
+            self._cells[(x, y)] = Cell(char=cell.char, fg=fg, bg=bg)
+        elif (x, y) in self._cells:
+            # Reset to default colors
+            if cell.char == ' ':
+                self.clear(x, y)
+            else:
+                self._cells[(x, y)] = Cell(char=cell.char, fg=-1, bg=-1)
 
     def clear(self, x: int, y: int) -> None:
         """Remove cell at position."""
@@ -125,10 +193,15 @@ class Canvas:
 
     def to_dict(self) -> dict:
         """Serialize canvas to dictionary for JSON export."""
-        cells_list = [
-            {"x": x, "y": y, "char": cell.char}
-            for (x, y), cell in self._cells.items()
-        ]
+        cells_list = []
+        for (x, y), cell in self._cells.items():
+            cell_dict = {"x": x, "y": y, "char": cell.char}
+            # Only include color if non-default
+            if cell.fg != -1:
+                cell_dict["fg"] = cell.fg
+            if cell.bg != -1:
+                cell_dict["bg"] = cell.bg
+            cells_list.append(cell_dict)
         return {"cells": cells_list}
 
     @classmethod
@@ -136,7 +209,9 @@ class Canvas:
         """Deserialize canvas from dictionary."""
         canvas = cls()
         for cell_data in data.get("cells", []):
-            canvas.set(cell_data["x"], cell_data["y"], cell_data["char"])
+            fg = cell_data.get("fg", -1)
+            bg = cell_data.get("bg", -1)
+            canvas.set(cell_data["x"], cell_data["y"], cell_data["char"], fg=fg, bg=bg)
         return canvas
 
     def draw_line(self, x1: int, y1: int, x2: int, y2: int, char: str = '*') -> None:

@@ -12,7 +12,7 @@ import logging
 import sys
 from pathlib import Path
 
-from canvas import Canvas
+from canvas import Canvas, parse_color, COLOR_NAMES
 from viewport import Viewport
 from renderer import Renderer, GridSettings, GridLineMode, create_status_line
 from input import InputHandler, Action, InputEvent
@@ -135,6 +135,8 @@ class Application:
         self.state_machine.register_command("borders", self._cmd_border)
         self.state_machine.register_command("session", self._cmd_session)
         self.state_machine.register_command("fill", self._cmd_fill)
+        self.state_machine.register_command("color", self._cmd_color)
+        self.state_machine.register_command("palette", self._cmd_palette)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -827,6 +829,12 @@ class Application:
     Ctrl+S          - Save         Ctrl+O        - Open
     Ctrl+N          - New          F1            - This help
 
+  COLORS:
+    :color FG [BG]    - Set drawing color (fg/bg)
+    :color off        - Reset to default colors
+    :color apply W H  - Apply current color to region
+    :palette          - Show available colors
+
   EXTERNAL TOOLS:
     :tools          - Show tool availability (boxes, figlet)
     :box list       - List box styles
@@ -1100,6 +1108,78 @@ class Application:
 
         except ValueError:
             return ModeResult(message="Usage: fill [X Y] W H CHAR")
+
+    def _cmd_color(self, args: list[str]) -> ModeResult:
+        """
+        Set drawing color for text/drawing operations.
+
+        Usage:
+            :color                  - Show current color
+            :color FG               - Set foreground color
+            :color FG BG            - Set foreground and background
+            :color off              - Reset to default colors
+            :color apply W H        - Apply current color to region at cursor
+
+        Colors: black, red, green, yellow, blue, magenta, cyan, white, default
+        Or use numbers 0-7 (or 0-255 on supported terminals)
+        """
+        from canvas import COLOR_NUMBERS
+
+        if not args:
+            # Show current drawing color
+            fg = self.state_machine.draw_fg
+            bg = self.state_machine.draw_bg
+            fg_name = COLOR_NUMBERS.get(fg, str(fg))
+            bg_name = COLOR_NUMBERS.get(bg, str(bg))
+            return ModeResult(message=f"Color: fg={fg_name} bg={bg_name}")
+
+        subcmd = args[0].lower()
+
+        # Reset colors
+        if subcmd in ("off", "reset", "default"):
+            self.state_machine.draw_fg = -1
+            self.state_machine.draw_bg = -1
+            return ModeResult(message="Color reset to default")
+
+        # Apply color to region
+        if subcmd == "apply":
+            if len(args) < 3:
+                return ModeResult(message="Usage: color apply W H")
+            try:
+                w, h = int(args[1]), int(args[2])
+                fg = self.state_machine.draw_fg
+                bg = self.state_machine.draw_bg
+                cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+                for y in range(cy, cy + h):
+                    for x in range(cx, cx + w):
+                        self.canvas.set_color(x, y, fg, bg)
+                self.project.mark_dirty()
+                return ModeResult(message=f"Applied color to {w}x{h} region")
+            except ValueError:
+                return ModeResult(message="Usage: color apply W H")
+
+        # Set foreground (and optionally background)
+        fg = parse_color(args[0])
+        if fg == -1 and args[0].lower() not in ("default", "-1"):
+            return ModeResult(message=f"Unknown color: {args[0]}. Use: black,red,green,yellow,blue,magenta,cyan,white")
+
+        bg = -1
+        if len(args) > 1:
+            bg = parse_color(args[1])
+            if bg == -1 and args[1].lower() not in ("default", "-1"):
+                return ModeResult(message=f"Unknown color: {args[1]}")
+
+        self.state_machine.draw_fg = fg
+        self.state_machine.draw_bg = bg
+
+        fg_name = COLOR_NUMBERS.get(fg, str(fg))
+        bg_name = COLOR_NUMBERS.get(bg, str(bg))
+        return ModeResult(message=f"Color set: fg={fg_name} bg={bg_name}")
+
+    def _cmd_palette(self, args: list[str]) -> ModeResult:
+        """Show available colors."""
+        colors = "black(0) red(1) green(2) yellow(3) blue(4) magenta(5) cyan(6) white(7)"
+        return ModeResult(message=f"Colors: {colors}", message_frames=60)
 
     def _cmd_grid(self, args: list[str]) -> ModeResult:
         """Configure grid: grid [major|minor|lines|markers|dots|off|rulers|labels|interval]"""

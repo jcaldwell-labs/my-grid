@@ -88,18 +88,51 @@ class Renderer:
         self.stdscr.keypad(True)
         self.stdscr.nodelay(False)  # Blocking input by default
 
+        # Color pair cache: (fg, bg) -> pair_number
+        self._color_pair_cache: dict[tuple[int, int], int] = {}
+        self._next_color_pair = 11  # Start after reserved pairs
+
         # Setup colors if available
         if curses.has_colors():
             curses.start_color()
             curses.use_default_colors()
 
-            # Define color pairs
+            # Reserved color pairs (1-10)
             curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)   # Cursor
             curses.init_pair(2, curses.COLOR_YELLOW, -1)                  # Origin
             curses.init_pair(3, curses.COLOR_BLUE, -1)                    # Major grid
             curses.init_pair(4, curses.COLOR_BLACK, -1)                   # Minor grid (dim)
             curses.init_pair(5, curses.COLOR_GREEN, -1)                   # Status line
             curses.init_pair(6, curses.COLOR_BLACK, curses.COLOR_CYAN)    # Visual selection
+
+    def _get_color_pair(self, fg: int, bg: int) -> int:
+        """
+        Get or create a color pair for the given foreground and background.
+
+        Returns the curses color pair number.
+        """
+        # Default colors don't need a special pair
+        if fg == -1 and bg == -1:
+            return 0
+
+        key = (fg, bg)
+        if key in self._color_pair_cache:
+            return self._color_pair_cache[key]
+
+        # Create new color pair if we have room
+        try:
+            max_pairs = curses.COLOR_PAIRS
+            if self._next_color_pair < max_pairs:
+                curses.init_pair(self._next_color_pair, fg, bg)
+                self._color_pair_cache[key] = self._next_color_pair
+                pair_num = self._next_color_pair
+                self._next_color_pair += 1
+                return pair_num
+        except curses.error:
+            pass
+
+        # Fall back to no color if we can't create pair
+        return 0
 
     def get_terminal_size(self) -> tuple[int, int]:
         """Get current terminal dimensions (height, width)."""
@@ -178,7 +211,8 @@ class Renderer:
         Returns (char, curses_attr) tuple.
         """
         attr = curses.A_NORMAL
-        char = canvas.get_char(cx, cy)
+        cell = canvas.get(cx, cy)
+        char = cell.char
 
         # Check if this is the cursor position
         is_cursor = (cx == viewport.cursor.x and cy == viewport.cursor.y)
@@ -202,6 +236,14 @@ class Renderer:
                     char = self.grid.origin_char
                 attr = curses.color_pair(2) | curses.A_BOLD
                 return char, attr
+
+        # Check for cell colors
+        if cell.has_color():
+            pair = self._get_color_pair(cell.fg, cell.bg)
+            attr = curses.color_pair(pair)
+            if char == ' ':
+                char = self.style.empty_char
+            return char, attr
 
         # Check for grid lines (only show if cell is empty)
         if char == ' ':

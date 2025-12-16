@@ -273,6 +273,10 @@ class ModeStateMachine:
         self.bookmarks = BookmarkManager()
         self.selection: Selection | None = None  # Active selection for VISUAL mode
 
+        # Drawing colors
+        self.draw_fg: int = -1  # Foreground color (-1 = default)
+        self.draw_bg: int = -1  # Background color (-1 = default)
+
         # Command handlers: command_name -> callable
         self._command_handlers: dict[str, Callable[[list[str]], ModeResult]] = {}
         self._register_default_commands()
@@ -487,7 +491,7 @@ class ModeStateMachine:
         # Handle typed characters
         if event.char:
             cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
-            self.canvas.set(cx, cy, event.char)
+            self.canvas.set(cx, cy, event.char, fg=self.draw_fg, bg=self.draw_bg)
 
             if cfg.auto_advance:
                 dx, dy = cfg.advance_direction

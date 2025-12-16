@@ -220,6 +220,58 @@ Note: PTY zones require Unix-like systems (Linux, macOS, WSL). Not available on 
 
 ---
 
+## Colors
+
+Set drawing colors for text and regions. Colors persist until changed.
+
+### Color Commands
+
+| Command | Description |
+|---------|-------------|
+| `:color FG [BG]` | Set drawing color (foreground, optional background) |
+| `:color off` | Reset to default (terminal) colors |
+| `:color apply W H` | Apply current color to region at cursor |
+| `:palette` | Show available color names |
+| `:color` | Show current color setting |
+
+### Available Colors
+
+| Name | Value | Description |
+|------|-------|-------------|
+| `black` | 0 | Black |
+| `red` | 1 | Red |
+| `green` | 2 | Green |
+| `yellow` | 3 | Yellow |
+| `blue` | 4 | Blue |
+| `magenta` | 5 | Magenta |
+| `cyan` | 6 | Cyan |
+| `white` | 7 | White |
+| `default` | -1 | Terminal default |
+
+### Examples
+
+```bash
+# Set red foreground
+:color red
+
+# Set green text on black background
+:color green black
+
+# Type in edit mode - text appears in set color
+i Hello World <Esc>
+
+# Apply blue background to 10x5 region at cursor
+:color default blue
+:color apply 10 5
+
+# Reset to default colors
+:color off
+```
+
+Colors are saved with the canvas in project files.
+
+---
+
 ## Layouts (Workspace Templates)
 
 Layouts save and restore zone configurations. Stored in `~/.config/mygrid/layouts/` (Unix) or `%APPDATA%/mygrid/layouts/` (Windows).
