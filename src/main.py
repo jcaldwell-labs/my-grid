@@ -17,7 +17,7 @@ from viewport import Viewport
 from renderer import Renderer, GridSettings, GridLineMode, create_status_line
 from input import InputHandler, Action, InputEvent
 from modes import Mode, ModeConfig, ModeStateMachine, ModeResult
-from project import Project, add_recent_project, suggest_filename
+from project import Project, add_recent_project, suggest_filename, SessionManager
 from command_queue import CommandQueue, CommandResponse, send_response
 from server import APIServer, ServerConfig
 from zones import (
@@ -65,6 +65,7 @@ class Application:
         self.clipboard = Clipboard()
         self.fifo_handler = FIFOHandler(self.zone_manager)
         self.socket_handler = SocketHandler(self.zone_manager)
+        self.session_manager = SessionManager()
 
         # Install default layouts on first run
         install_default_layouts()
@@ -132,6 +133,7 @@ class Application:
         self.state_machine.register_command("clipboard", self._cmd_clipboard)
         self.state_machine.register_command("border", self._cmd_border)
         self.state_machine.register_command("borders", self._cmd_border)
+        self.state_machine.register_command("session", self._cmd_session)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -318,6 +320,15 @@ class Application:
                 # Render dynamic zones to canvas
                 self.zone_manager.render_all_zones(self.canvas)
 
+                # Auto-save session if interval elapsed
+                if self.project.dirty:
+                    self.session_manager.auto_save(
+                        self.canvas, self.viewport,
+                        grid_settings=self.renderer.grid,
+                        bookmarks=self.state_machine.bookmarks,
+                        zones=self.zone_manager
+                    )
+
                 # Render frame
                 status = self._get_status_line()
                 self.renderer.render(self.canvas, self.viewport, status)
@@ -420,6 +431,9 @@ class Application:
             self.fifo_handler.stop_all()
             # Clean up socket listeners
             self.socket_handler.stop_all()
+            # Clear session file on clean exit (not crash)
+            if not self.project.dirty:
+                self.session_manager.clear_current_session()
 
     def _process_external_commands(self) -> None:
         """Process commands from the external API queue."""
@@ -1694,6 +1708,116 @@ class Application:
         else:
             styles = list_border_styles()
             return ModeResult(message=f"Unknown style. Available: {', '.join(styles)}")
+
+    def _cmd_session(self, args: list[str]) -> ModeResult:
+        """
+        Session management command.
+
+        Usage:
+            :session              - Show session info
+            :session list         - List available sessions
+            :session restore [N]  - Restore session (latest or by index)
+            :session save         - Force save current session
+            :session on           - Enable auto-save
+            :session off          - Disable auto-save
+            :session clear        - Clear all saved sessions
+        """
+        if not args:
+            # Show session info
+            status = "enabled" if self.session_manager.enabled else "disabled"
+            interval = self.session_manager.interval_seconds
+            sessions = self.session_manager.list_sessions()
+            return ModeResult(
+                message=f"Auto-save: {status} ({interval}s interval), {len(sessions)} sessions saved"
+            )
+
+        subcmd = args[0].lower()
+
+        # :session list
+        if subcmd == "list":
+            sessions = self.session_manager.list_sessions()
+            if not sessions:
+                return ModeResult(message="No sessions found")
+
+            # Show up to 10 sessions
+            parts = []
+            for i, sess in enumerate(sessions[:10]):
+                ts = sess["timestamp"][:16] if sess["timestamp"] != "Unknown" else "Unknown"
+                parts.append(f"{i}: {ts}")
+            return ModeResult(message=f"Sessions: {', '.join(parts)}")
+
+        # :session restore [N]
+        elif subcmd == "restore":
+            sessions = self.session_manager.list_sessions()
+            if not sessions:
+                return ModeResult(message="No sessions to restore")
+
+            # Get session index (default to 0 = latest)
+            index = 0
+            if len(args) > 1:
+                try:
+                    index = int(args[1])
+                except ValueError:
+                    return ModeResult(message="Usage: session restore [N] (N = session index)")
+
+            if index < 0 or index >= len(sessions):
+                return ModeResult(message=f"Invalid session index. Range: 0-{len(sessions)-1}")
+
+            session_path = sessions[index]["path"]
+            success = self.session_manager.restore_session(
+                session_path,
+                self.canvas,
+                self.viewport,
+                grid_settings=self.renderer.grid,
+                bookmarks=self.state_machine.bookmarks,
+                zones=self.zone_manager
+            )
+
+            if success:
+                self.project.mark_dirty()  # Mark as dirty since restored
+                return ModeResult(message=f"Restored session from {sessions[index]['timestamp'][:16]}")
+            else:
+                return ModeResult(message="Failed to restore session")
+
+        # :session save
+        elif subcmd == "save":
+            import time
+            self.session_manager._last_save_time = 0  # Force save
+            result = self.session_manager.auto_save(
+                self.canvas, self.viewport,
+                grid_settings=self.renderer.grid,
+                bookmarks=self.state_machine.bookmarks,
+                zones=self.zone_manager
+            )
+            if result:
+                return ModeResult(message=f"Session saved to {result.name}")
+            else:
+                return ModeResult(message="Failed to save session")
+
+        # :session on
+        elif subcmd == "on":
+            self.session_manager.enabled = True
+            return ModeResult(message="Auto-save enabled")
+
+        # :session off
+        elif subcmd == "off":
+            self.session_manager.enabled = False
+            return ModeResult(message="Auto-save disabled")
+
+        # :session clear
+        elif subcmd == "clear":
+            sessions = self.session_manager.list_sessions()
+            for sess in sessions:
+                try:
+                    sess["path"].unlink()
+                except Exception:
+                    pass
+            return ModeResult(message=f"Cleared {len(sessions)} sessions")
+
+        else:
+            return ModeResult(
+                message="Usage: session list|restore|save|on|off|clear"
+            )
 
     def _cmd_layout(self, args: list[str]) -> ModeResult:
         """
