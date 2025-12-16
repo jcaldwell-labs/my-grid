@@ -26,6 +26,7 @@ class Mode(Enum):
     COMMAND = auto()
     MARK_SET = auto()      # Waiting for bookmark key (m + key)
     MARK_JUMP = auto()     # Waiting for bookmark key (' + key)
+    VISUAL = auto()        # Visual selection mode
 
 
 @dataclass
@@ -91,6 +92,59 @@ class BookmarkManager:
                 bm_data.get("name", "")
             )
         return manager
+
+
+@dataclass
+class Selection:
+    """
+    Represents a rectangular selection on the canvas.
+
+    The selection is defined by an anchor point and the current cursor position.
+    The actual rectangle spans from min(anchor, cursor) to max(anchor, cursor).
+    """
+    anchor_x: int = 0
+    anchor_y: int = 0
+    cursor_x: int = 0
+    cursor_y: int = 0
+
+    @property
+    def x1(self) -> int:
+        """Left edge of selection."""
+        return min(self.anchor_x, self.cursor_x)
+
+    @property
+    def y1(self) -> int:
+        """Top edge of selection."""
+        return min(self.anchor_y, self.cursor_y)
+
+    @property
+    def x2(self) -> int:
+        """Right edge of selection (inclusive)."""
+        return max(self.anchor_x, self.cursor_x)
+
+    @property
+    def y2(self) -> int:
+        """Bottom edge of selection (inclusive)."""
+        return max(self.anchor_y, self.cursor_y)
+
+    @property
+    def width(self) -> int:
+        """Width of selection."""
+        return self.x2 - self.x1 + 1
+
+    @property
+    def height(self) -> int:
+        """Height of selection."""
+        return self.y2 - self.y1 + 1
+
+    def contains(self, x: int, y: int) -> bool:
+        """Check if a point is within the selection."""
+        return self.x1 <= x <= self.x2 and self.y1 <= y <= self.y2
+
+    def update_cursor(self, x: int, y: int) -> None:
+        """Update the cursor position (extends/shrinks selection)."""
+        self.cursor_x = x
+        self.cursor_y = y
 
 
 @dataclass
@@ -217,6 +271,7 @@ class ModeStateMachine:
         self._previous_mode = Mode.NAV
         self.command_buffer = CommandBuffer()
         self.bookmarks = BookmarkManager()
+        self.selection: Selection | None = None  # Active selection for VISUAL mode
 
         # Command handlers: command_name -> callable
         self._command_handlers: dict[str, Callable[[list[str]], ModeResult]] = {}
@@ -276,6 +331,8 @@ class ModeStateMachine:
             return self._process_mark_set(event)
         elif self._mode == Mode.MARK_JUMP:
             return self._process_mark_jump(event)
+        elif self._mode == Mode.VISUAL:
+            return self._process_visual(event)
 
         return ModeResult(handled=False)
 
@@ -294,6 +351,10 @@ class ModeStateMachine:
         elif self._mode in (Mode.MARK_SET, Mode.MARK_JUMP):
             self.set_mode(Mode.NAV)
             return ModeResult(mode_changed=True, new_mode=Mode.NAV, message="Cancelled")
+        elif self._mode == Mode.VISUAL:
+            self.selection = None
+            self.set_mode(Mode.NAV)
+            return ModeResult(mode_changed=True, new_mode=Mode.NAV, message="Selection cancelled")
         return ModeResult()
 
     def _process_nav(self, event: "InputEvent") -> ModeResult:
@@ -354,6 +415,14 @@ class ModeStateMachine:
             self.set_mode(Mode.MARK_JUMP)
             return ModeResult(mode_changed=True, new_mode=Mode.MARK_JUMP,
                             message="Jump to mark: press a-z or 0-9")
+
+        # Visual selection mode
+        if event.char == 'v':
+            cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+            self.selection = Selection(anchor_x=cx, anchor_y=cy, cursor_x=cx, cursor_y=cy)
+            self.set_mode(Mode.VISUAL)
+            return ModeResult(mode_changed=True, new_mode=Mode.VISUAL,
+                            message="-- VISUAL -- (1x1)")
 
         return ModeResult(handled=False)
 
@@ -699,3 +768,80 @@ class ModeStateMachine:
         """Delete all bookmarks."""
         self.bookmarks.clear()
         return ModeResult(message="All marks deleted")
+
+    def _process_visual(self, event: "InputEvent") -> ModeResult:
+        """Process input in VISUAL mode - selection operations."""
+        from input import Action
+
+        action = event.action
+        cfg = self.config
+
+        if self.selection is None:
+            # Shouldn't happen, but recover gracefully
+            self.set_mode(Mode.NAV)
+            return ModeResult(mode_changed=True, new_mode=Mode.NAV)
+
+        # Movement extends/shrinks selection
+        move_map = {
+            Action.MOVE_UP: (0, -cfg.move_step),
+            Action.MOVE_DOWN: (0, cfg.move_step),
+            Action.MOVE_LEFT: (-cfg.move_step, 0),
+            Action.MOVE_RIGHT: (cfg.move_step, 0),
+            Action.MOVE_UP_FAST: (0, -cfg.move_fast_step),
+            Action.MOVE_DOWN_FAST: (0, cfg.move_fast_step),
+            Action.MOVE_LEFT_FAST: (-cfg.move_fast_step, 0),
+            Action.MOVE_RIGHT_FAST: (cfg.move_fast_step, 0),
+        }
+
+        if action in move_map:
+            dx, dy = move_map[action]
+            # Move both cursor and selection cursor
+            self.viewport.move_cursor(dx, dy)
+            self.selection.update_cursor(
+                self.viewport.cursor.x,
+                self.viewport.cursor.y
+            )
+            self.viewport.ensure_cursor_visible(margin=cfg.scroll_margin)
+            # Update status with selection size
+            w, h = self.selection.width, self.selection.height
+            return ModeResult(message=f"-- VISUAL -- ({w}x{h})")
+
+        # Yank selection
+        if event.char == 'y':
+            # Signal to yank selection, handled by main.py
+            sel = self.selection
+            self.selection = None
+            self.set_mode(Mode.NAV)
+            return ModeResult(
+                mode_changed=True,
+                new_mode=Mode.NAV,
+                command=f"yank_selection {sel.x1} {sel.y1} {sel.width} {sel.height}"
+            )
+
+        # Delete selection
+        if event.char == 'd':
+            # Signal to delete selection, handled by main.py
+            sel = self.selection
+            self.selection = None
+            self.set_mode(Mode.NAV)
+            return ModeResult(
+                mode_changed=True,
+                new_mode=Mode.NAV,
+                command=f"delete_selection {sel.x1} {sel.y1} {sel.width} {sel.height}"
+            )
+
+        # Fill selection (trigger command mode with fill)
+        if event.char == 'f':
+            sel = self.selection
+            self.selection = None
+            self.set_mode(Mode.COMMAND)
+            # Pre-fill command buffer with fill command template
+            self.command_buffer.text = f"fill {sel.x1} {sel.y1} {sel.width} {sel.height} "
+            self.command_buffer.cursor_pos = len(self.command_buffer.text)
+            return ModeResult(
+                mode_changed=True,
+                new_mode=Mode.COMMAND,
+                message="Fill selection with character:"
+            )
+
+        return ModeResult(handled=False)

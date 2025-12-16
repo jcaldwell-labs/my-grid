@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from canvas import Canvas
     from viewport import Viewport
+    from modes import Selection
 
 
 class GridLineMode(Enum):
@@ -98,6 +99,7 @@ class Renderer:
             curses.init_pair(3, curses.COLOR_BLUE, -1)                    # Major grid
             curses.init_pair(4, curses.COLOR_BLACK, -1)                   # Minor grid (dim)
             curses.init_pair(5, curses.COLOR_GREEN, -1)                   # Status line
+            curses.init_pair(6, curses.COLOR_BLACK, curses.COLOR_CYAN)    # Visual selection
 
     def get_terminal_size(self) -> tuple[int, int]:
         """Get current terminal dimensions (height, width)."""
@@ -107,7 +109,8 @@ class Renderer:
         self,
         canvas: "Canvas",
         viewport: "Viewport",
-        status_line: str | None = None
+        status_line: str | None = None,
+        selection: "Selection | None" = None
     ) -> None:
         """
         Render the complete frame.
@@ -116,6 +119,7 @@ class Renderer:
             canvas: The canvas to render
             viewport: The viewport defining visible area
             status_line: Optional status text for bottom line
+            selection: Optional visual selection to highlight
         """
         self.stdscr.erase()
 
@@ -142,7 +146,7 @@ class Renderer:
         for sy in range(min(render_height, viewport.height)):
             for sx in range(min(render_width, viewport.width)):
                 cx, cy = viewport.screen_to_canvas(sx, sy)
-                char, attr = self._get_cell_display(canvas, viewport, cx, cy, sx, sy)
+                char, attr = self._get_cell_display(canvas, viewport, cx, cy, sx, sy, selection)
 
                 try:
                     self.stdscr.addch(sy + ruler_offset_y, sx + ruler_offset_x, char, attr)
@@ -165,7 +169,8 @@ class Renderer:
         canvas: "Canvas",
         viewport: "Viewport",
         cx: int, cy: int,
-        sx: int, sy: int
+        sx: int, sy: int,
+        selection: "Selection | None" = None
     ) -> tuple[str, int]:
         """
         Determine what character and attributes to display at a position.
@@ -182,6 +187,13 @@ class Renderer:
                 char = self.style.cursor_char
             attr = curses.color_pair(1) | curses.A_BOLD
             return char if char != ' ' else self.style.empty_char, attr
+
+        # Check if within visual selection (but not cursor - handled above)
+        if selection is not None and selection.contains(cx, cy):
+            attr = curses.color_pair(6)  # Visual selection color
+            if char == ' ':
+                char = self.style.empty_char
+            return char, attr
 
         # Check for origin
         if self.grid.show_origin:

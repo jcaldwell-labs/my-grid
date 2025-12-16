@@ -87,8 +87,28 @@ Renderer.render(canvas, viewport, status) → Terminal Display
 | COMMAND | `:` | typing | Execute commands |
 | MARK_SET | `m` | a-z, 0-9 | Set bookmark at cursor |
 | MARK_JUMP | `'` | a-z, 0-9 | Jump to bookmark |
+| VISUAL | `v` | wasd/arrows | Visual selection mode |
 
 Exit any mode with `Esc`.
+
+---
+
+## Visual Selection
+
+Visual selection mode allows selecting a rectangular region on the canvas for bulk operations.
+
+**Enter**: Press `v` in NAV mode
+**Exit**: Press `Esc`
+
+| Key | Action |
+|-----|--------|
+| `wasd` / arrows | Extend/shrink selection |
+| `y` | Yank (copy) selection to clipboard |
+| `d` | Delete selection (clear cells) |
+| `f` | Fill selection with character (opens command) |
+| `Esc` | Cancel selection |
+
+The selection is highlighted in cyan. The cursor shows one corner, the anchor is at the starting position.
 
 ---
 

@@ -134,6 +134,7 @@ class Application:
         self.state_machine.register_command("border", self._cmd_border)
         self.state_machine.register_command("borders", self._cmd_border)
         self.state_machine.register_command("session", self._cmd_session)
+        self.state_machine.register_command("fill", self._cmd_fill)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -239,6 +240,7 @@ class Application:
             "PAN": "PAN",
             "EDIT": "EDT",
             "COMMAND": "CMD",
+            "VISUAL": "VIS",
         }
         mode_str = mode_indicators.get(mode, mode)
 
@@ -331,7 +333,10 @@ class Application:
 
                 # Render frame
                 status = self._get_status_line()
-                self.renderer.render(self.canvas, self.viewport, status)
+                self.renderer.render(
+                    self.canvas, self.viewport, status,
+                    selection=self.state_machine.selection
+                )
 
                 # Get input (may timeout if server/joystick mode)
                 key = self.renderer.get_input()
@@ -641,6 +646,26 @@ class Application:
             self._do_save()
         elif command == "help":
             self._show_help()
+        elif command.startswith("yank_selection"):
+            # yank_selection X Y W H
+            parts = command.split()
+            if len(parts) == 5:
+                x, y, w, h = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+                lines = self.clipboard.yank_region(
+                    self.canvas, x, y, x + w - 1, y + h - 1
+                )
+                self._show_message(f"Yanked {w}x{h} region ({lines} lines)")
+        elif command.startswith("delete_selection"):
+            # delete_selection X Y W H
+            parts = command.split()
+            if len(parts) == 5:
+                x, y, w, h = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+                # Clear the rectangular region
+                for cy in range(y, y + h):
+                    for cx in range(x, x + w):
+                        self.canvas.clear(cx, cy)
+                self.project.mark_dirty()
+                self._show_message(f"Deleted {w}x{h} region")
 
     def _do_save(self) -> None:
         """Save the current project."""
@@ -726,9 +751,15 @@ class Application:
   MODES:
     NAV (default) - Navigate canvas    PAN (p)       - Pan viewport
     EDIT (i)      - Type/draw          COMMAND (:)   - Enter commands
+    VISUAL (v)    - Visual selection   Esc           - Exit current mode
 
   NAVIGATION:
     wasd / arrows - Move cursor        WASD          - Fast move (10x)
+
+  VISUAL SELECTION (press 'v' in NAV mode):
+    wasd/arrows   - Extend selection   y             - Yank selection
+    d             - Delete selection   f             - Fill selection
+    Esc           - Cancel selection
 
   BOOKMARKS:
     m + key       - Set mark (a-z, 0-9)    ' + key   - Jump to mark
@@ -737,12 +768,7 @@ class Application:
   DRAWING:
     :rect W H [c] - Draw rectangle         :line X Y  - Draw line to X,Y
     :text MSG     - Write text             :box STYLE TEXT - ASCII box
-    :figlet TEXT  - ASCII art text         :pipe CMD  - Command output
-
-  GRID & VIEW:
-    g / G         - Toggle major/minor grid
-    0             - Toggle origin marker   :grid [mode] - lines/markers/dots/off
-    :grid rulers  - Toggle rulers          :grid labels - Toggle coord labels
+    :figlet TEXT  - ASCII art text         :fill W H C - Fill region
 
 {joy_status}  [n/Space] Next page | [p] Prev | [q/Esc] Close"""
 
@@ -1037,6 +1063,43 @@ class Application:
         self.canvas.write_text(cx, cy, text)
         self.project.mark_dirty()
         return ModeResult(message=f"Wrote {len(text)} characters")
+
+    def _cmd_fill(self, args: list[str]) -> ModeResult:
+        """Fill a rectangular region with a character.
+
+        Usage:
+            :fill X Y W H CHAR   - Fill region at (X,Y) with dimensions WxH
+            :fill W H CHAR       - Fill region at cursor with dimensions WxH
+        """
+        if len(args) < 3:
+            return ModeResult(message="Usage: fill [X Y] W H CHAR")
+
+        try:
+            # Check if first two args are coordinates or dimensions
+            if len(args) >= 5:
+                # fill X Y W H CHAR
+                x, y = int(args[0]), int(args[1])
+                w, h = int(args[2]), int(args[3])
+                char = args[4] if len(args) > 4 else ' '
+            else:
+                # fill W H CHAR (use cursor position)
+                x, y = self.viewport.cursor.x, self.viewport.cursor.y
+                w, h = int(args[0]), int(args[1])
+                char = args[2] if len(args) > 2 else ' '
+
+            # Use only the first character
+            char = char[0] if char else ' '
+
+            # Fill the region
+            for cy in range(y, y + h):
+                for cx in range(x, x + w):
+                    self.canvas.set(cx, cy, char)
+
+            self.project.mark_dirty()
+            return ModeResult(message=f"Filled {w}x{h} region with '{char}'")
+
+        except ValueError:
+            return ModeResult(message="Usage: fill [X Y] W H CHAR")
 
     def _cmd_grid(self, args: list[str]) -> ModeResult:
         """Configure grid: grid [major|minor|lines|markers|dots|off|rulers|labels|interval]"""
