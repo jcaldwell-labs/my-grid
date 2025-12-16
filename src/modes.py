@@ -192,6 +192,7 @@ class ModeResult:
     new_mode: Mode | None = None
     command: str | None = None      # For command mode submission
     message: str | None = None      # Status message to display
+    message_frames: int = 2         # How long to show message (default 2 frames)
     quit: bool = False
 
 
