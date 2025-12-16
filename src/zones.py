@@ -19,6 +19,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterator, Any
 import math
+import re
+
+
+# Regex to match ANSI escape sequences
+_ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;?]*[a-zA-Z]|\x1b[>=]')
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from text."""
+    return _ANSI_ESCAPE_RE.sub('', text)
 
 
 # Border style character sets
@@ -239,11 +249,12 @@ class Zone:
             for col in range(content_w):
                 canvas.clear(content_x + col, content_y + row)
 
-        # Write content lines
+        # Write content lines (strip ANSI codes for clean display)
         for row, line in enumerate(self._content_lines):
             if row >= content_h:
                 break  # Content area full
-            for col, char in enumerate(line):
+            clean_line = strip_ansi(line)
+            for col, char in enumerate(clean_line):
                 if col >= content_w:
                     break  # Line too long
                 if char not in (' ', '\t', '\n', '\r'):
