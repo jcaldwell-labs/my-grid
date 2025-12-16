@@ -23,7 +23,8 @@ from server import APIServer, ServerConfig
 from zones import (
     Zone, ZoneManager, ZoneExecutor, ZoneType, ZoneConfig,
     PTYHandler, PTY_AVAILABLE, Clipboard,
-    FIFOHandler, SocketHandler
+    FIFOHandler, SocketHandler,
+    get_border_style, set_border_style, list_border_styles
 )
 from layouts import LayoutManager, install_default_layouts
 from external import (
@@ -129,6 +130,8 @@ class Application:
         self.state_machine.register_command("paste", self._cmd_paste)
         self.state_machine.register_command("p", self._cmd_paste)
         self.state_machine.register_command("clipboard", self._cmd_clipboard)
+        self.state_machine.register_command("border", self._cmd_border)
+        self.state_machine.register_command("borders", self._cmd_border)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -1661,6 +1664,36 @@ class Application:
         parts = [f"{name}: {'OK' if available else 'NOT FOUND'}"
                  for name, available in status.items()]
         return ModeResult(message="Tools: " + ", ".join(parts))
+
+    def _cmd_border(self, args: list[str]) -> ModeResult:
+        """
+        Set zone border style.
+
+        Usage:
+            :border              - Show current style
+            :border list         - List available styles
+            :border STYLE        - Set border style (ascii, unicode, rounded, double, heavy)
+        """
+        if not args:
+            current = get_border_style()
+            return ModeResult(message=f"Border style: {current}")
+
+        subcmd = args[0].lower()
+
+        if subcmd == "list":
+            styles = list_border_styles()
+            current = get_border_style()
+            parts = [f"*{s}*" if s == current else s for s in styles]
+            return ModeResult(message=f"Border styles: {', '.join(parts)}")
+
+        # Try to set the style
+        if set_border_style(subcmd):
+            # Force redraw of all zones
+            self.zone_manager.render_all_zones(self.canvas)
+            return ModeResult(message=f"Border style set to: {subcmd}")
+        else:
+            styles = list_border_styles()
+            return ModeResult(message=f"Unknown style. Available: {', '.join(styles)}")
 
     def _cmd_layout(self, args: list[str]) -> ModeResult:
         """
