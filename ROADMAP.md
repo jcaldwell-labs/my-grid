@@ -91,7 +91,7 @@ Inspired by Jef Raskin's "The Humane Interface" - spatial navigation over window
 
 - [x] Zone buffer viewer (`:zone buffer NAME`)
 - [x] Search within zone buffers
-- [ ] Export zone buffer to file
+- [x] Export zone buffer to file (`:zone export NAME [FILE]`)
 - [ ] Configurable buffer sizes per zone
 - [ ] Buffer compression for old content
 - [ ] Zone statistics (lines/sec, total received)
@@ -282,9 +282,9 @@ Inspired by Jef Raskin's "The Humane Interface" - spatial navigation over window
 2. ~~**Add `--layout` CLI flag** - Load layout on startup~~ ✅
 3. ~~**Create layout templates** - 5-10 ready-to-use layouts~~ ✅ (9 templates)
 4. ~~**Buffer viewer** - `:zone buffer NAME` command~~ ✅
-5. **Test coverage** - Add unit tests for zone handlers
-6. **Layout validation** - Error reporting for invalid layouts
-7. **Buffer export** - Export zone buffer to file
+5. ~~**Buffer export** - Export zone buffer to file~~ ✅
+6. **Test coverage** - Add unit tests for zone handlers
+7. **Layout validation** - Error reporting for invalid layouts
 
 ---
 

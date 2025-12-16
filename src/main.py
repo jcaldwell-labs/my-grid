@@ -1159,6 +1159,7 @@ class Application:
             :zone pause NAME                  - Pause watch zone
             :zone resume NAME                 - Resume watch zone
             :zone buffer NAME                 - View full zone buffer (scrollable)
+            :zone export NAME [FILE]          - Export zone buffer to file
             :zone pty NAME W H [SHELL]        - Create PTY zone (Unix only)
             :zone send NAME TEXT              - Send text to PTY zone
             :zone focus NAME                  - Focus PTY zone
@@ -1403,6 +1404,33 @@ class Application:
                 return ModeResult(message=f"Zone '{args[1]}' buffer is empty")
             self._show_buffer_viewer(zone.name, lines)
             return ModeResult()
+
+        # :zone export NAME [FILE]
+        elif subcmd == "export":
+            if len(args) < 2:
+                return ModeResult(message="Usage: zone export NAME [FILE]")
+            zone = self.zone_manager.get(args[1])
+            if zone is None:
+                return ModeResult(message=f"Zone '{args[1]}' not found")
+            lines = zone.content_lines
+            if not lines:
+                return ModeResult(message=f"Zone '{args[1]}' buffer is empty")
+
+            # Generate default filename if not provided
+            if len(args) >= 3:
+                filename = args[2]
+            else:
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{zone.name.lower()}_{timestamp}.txt"
+
+            try:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                    f.write('\n')  # Trailing newline
+                return ModeResult(message=f"Exported {len(lines)} lines to {filename}")
+            except Exception as e:
+                return ModeResult(message=f"Export error: {e}")
 
         # :zone pty NAME W H [SHELL]
         elif subcmd == "pty":
