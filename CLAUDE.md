@@ -39,6 +39,9 @@ src/
 ├── input.py       # Action enum, key bindings (pygame-style constants)
 ├── modes.py       # State machine: NAV, PAN, EDIT, COMMAND modes
 ├── project.py     # JSON save/load, text export/import
+├── zones.py       # Zone management - named regions with dynamic content
+├── external.py    # External tool integration (boxes, figlet, pipes)
+├── joystick.py    # USB controller/joystick input handling
 └── main.py        # Application class, main loop, command handlers
 
 tests/
@@ -110,6 +113,57 @@ Bookmarks are saved with project files and cleared on new canvas.
 
 ---
 
+## Zones (Spatial Workspace)
+
+Zones are named rectangular regions that can contain dynamic content. Inspired by Jef Raskin's "The Humane Interface" - zones enable a spatial filesystem metaphor where you navigate to information rather than opening windows.
+
+### Zone Types
+
+| Type | Description | Command |
+|------|-------------|---------|
+| STATIC | Plain text region (default) | `:zone create NAME X Y W H` |
+| PIPE | One-shot command output | `:zone pipe NAME W H CMD` |
+| WATCH | Periodic refresh command | `:zone watch NAME W H INTERVAL CMD` |
+| PTY | Live terminal (planned) | - |
+| FIFO | Named pipe listener (planned) | - |
+| SOCKET | Network listener (planned) | - |
+
+### Zone Commands
+
+| Command | Description |
+|---------|-------------|
+| `:zone create NAME X Y W H` | Create static zone at coordinates |
+| `:zone create NAME here W H` | Create zone at cursor position |
+| `:zone pipe NAME W H CMD` | Create pipe zone, execute command once |
+| `:zone watch NAME W H 5s CMD` | Create watch zone, refresh every 5 seconds |
+| `:zone delete NAME` | Delete zone |
+| `:zone goto NAME` | Jump cursor to zone center |
+| `:zone info [NAME]` | Show zone info |
+| `:zone refresh NAME` | Manually refresh pipe/watch zone |
+| `:zone pause NAME` | Pause watch zone refresh |
+| `:zone resume NAME` | Resume watch zone refresh |
+| `:zones` | List all zones |
+
+### Examples
+
+```bash
+# Show disk usage, refresh every 30 seconds
+:zone watch DISK 40 10 30s df -h
+
+# Show git status, refresh every 5 seconds
+:zone watch GIT 50 15 5s git status --short
+
+# One-shot command output
+:zone pipe TREE 60 20 tree -L 2
+
+# Static zone for notes
+:zone create NOTES 0 0 40 20
+```
+
+Zones display with borders showing type indicator: `[P]` for pipe, `[W]` for watch, etc.
+
+---
+
 ## Commands
 
 | Command | Aliases | Description |
@@ -131,6 +185,12 @@ Bookmarks are saved with project files and cleared on new canvas.
 | `mark KEY [X Y]` | - | Set bookmark |
 | `delmark KEY` | - | Delete bookmark |
 | `delmarks` | - | Delete all bookmarks |
+| `zone SUBCMD` | - | Zone management (see Zones section) |
+| `zones` | - | List all zones |
+| `box [STYLE] TEXT` | - | Draw ASCII box (requires `boxes`) |
+| `figlet [-f FONT] TEXT` | - | Draw ASCII art text (requires `figlet`) |
+| `pipe COMMAND` | - | Execute command, write output at cursor |
+| `tools` | - | Show external tool status |
 
 ---
 
@@ -165,7 +225,20 @@ Bookmarks are saved with project files and cleared on new canvas.
   "canvas": { "cells": [{"x": 0, "y": 0, "char": "A"}, ...] },
   "viewport": { "x": 0, "y": 0, "cursor": {}, "origin": {} },
   "grid": { "show_origin": true, "major_interval": 10 },
-  "bookmarks": { "a": {"x": 10, "y": 20}, "b": {"x": 50, "y": 100} }
+  "bookmarks": { "a": {"x": 10, "y": 20}, "b": {"x": 50, "y": 100} },
+  "zones": {
+    "zones": [
+      {
+        "name": "INBOX",
+        "x": 0, "y": 0, "width": 40, "height": 20,
+        "config": {
+          "zone_type": "watch",
+          "command": "ls -la",
+          "refresh_interval": 10
+        }
+      }
+    ]
+  }
 }
 ```
 

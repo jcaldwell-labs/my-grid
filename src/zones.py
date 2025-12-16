@@ -165,6 +165,85 @@ class Zone:
         }
         return indicators.get(self.config.zone_type, "?")
 
+    def render_to_canvas(self, canvas) -> None:
+        """
+        Render zone content to canvas.
+
+        For dynamic zones, writes content lines to the zone area.
+        Draws border if configured.
+        """
+        if not self.is_dynamic:
+            return
+
+        # Clear zone area first (content area, not border)
+        content_x = self.x + 1
+        content_y = self.y + 1
+        content_w = self.width - 2
+        content_h = self.height - 2
+
+        for row in range(content_h):
+            for col in range(content_w):
+                canvas.clear(content_x + col, content_y + row)
+
+        # Write content lines
+        for row, line in enumerate(self._content_lines):
+            if row >= content_h:
+                break  # Content area full
+            for col, char in enumerate(line):
+                if col >= content_w:
+                    break  # Line too long
+                if char not in (' ', '\t', '\n', '\r'):
+                    canvas.set(content_x + col, content_y + row, char)
+
+    def draw_border(self, canvas, focused: bool = False) -> None:
+        """
+        Draw zone border on canvas.
+
+        Args:
+            canvas: Canvas to draw on
+            focused: If True, use highlight style
+        """
+        x, y = self.x, self.y
+        w, h = self.width, self.height
+
+        # Corner characters
+        tl, tr, bl, br = '+', '+', '+', '+'
+        horiz, vert = '-', '|'
+
+        if focused:
+            # Use double-line for focused zone
+            tl, tr, bl, br = '#', '#', '#', '#'
+            horiz, vert = '=', '#'
+
+        # Top border with zone info
+        header = f"[{self.type_indicator()}] {self.name}"
+        if self.config.paused:
+            header += " (paused)"
+        elif self.config.zone_type == ZoneType.WATCH and self.config.refresh_interval:
+            header += f" ({self.config.refresh_interval}s)"
+
+        # Draw top left corner
+        canvas.set(x, y, tl)
+        # Draw header
+        for i, char in enumerate(header[:w-4]):
+            canvas.set(x + 1 + i, y, char)
+        # Fill rest of top border
+        for i in range(len(header) + 1, w - 1):
+            canvas.set(x + i, y, horiz)
+        # Top right corner
+        canvas.set(x + w - 1, y, tr)
+
+        # Sides
+        for row in range(1, h - 1):
+            canvas.set(x, y + row, vert)
+            canvas.set(x + w - 1, y + row, vert)
+
+        # Bottom border
+        canvas.set(x, y + h - 1, bl)
+        for i in range(1, w - 1):
+            canvas.set(x + i, y + h - 1, horiz)
+        canvas.set(x + w - 1, y + h - 1, br)
+
     def contains(self, cx: int, cy: int) -> bool:
         """Check if a canvas coordinate is within this zone."""
         return (self.x <= cx < self.x + self.width and
@@ -522,6 +601,22 @@ class ZoneManager:
 
     def __contains__(self, name: str) -> bool:
         return name.lower() in self._zones
+
+    def render_all_zones(self, canvas, focused_zone: str | None = None) -> None:
+        """
+        Render all dynamic zones to the canvas.
+
+        Args:
+            canvas: Canvas to render to
+            focused_zone: Name of focused zone (for highlight)
+        """
+        for zone in self._zones.values():
+            is_focused = focused_zone and zone.name.lower() == focused_zone.lower()
+            # Draw border for all zones
+            zone.draw_border(canvas, focused=is_focused)
+            # Render content for dynamic zones
+            if zone.is_dynamic:
+                zone.render_to_canvas(canvas)
 
     def to_dict(self) -> dict:
         """Serialize all zones to dictionary for JSON export."""

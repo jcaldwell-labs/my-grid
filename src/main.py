@@ -258,6 +258,9 @@ class Application:
                 # Handle terminal resize
                 self._update_viewport_size()
 
+                # Render dynamic zones to canvas
+                self.zone_manager.render_all_zones(self.canvas)
+
                 # Render frame
                 status = self._get_status_line()
                 self.renderer.render(self.canvas, self.viewport, status)
