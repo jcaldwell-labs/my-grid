@@ -55,7 +55,6 @@ Inspired by Jef Raskin's "The Humane Interface" - spatial navigation over window
 
 ### Known Limitations
 ⚠️ FIFO/PTY zones Unix-only (WSL works)
-⚠️ Layout loading doesn't auto-start FIFO/Socket handlers
 ⚠️ No built-in scrollback viewer for long zone buffers
 ⚠️ Color support limited (curses basic colors only)
 ⚠️ No multi-user/collaboration features
@@ -79,10 +78,10 @@ Inspired by Jef Raskin's "The Humane Interface" - spatial navigation over window
 ### Phase 2: Layout System Polish (Next)
 **Goal: Make layouts the primary workflow**
 
-- [ ] Fix layout loading to auto-start FIFO/Socket zones
-- [ ] Add `--layout` CLI flag to load on startup
+- [x] Fix layout loading to auto-start FIFO/Socket zones
+- [x] Add `--layout` CLI flag to load on startup
+- [x] Layout templates library (5-10 common patterns)
 - [ ] Layout validation and error reporting
-- [ ] Layout templates library (5-10 common patterns)
 - [ ] Layout preview before loading
 - [ ] Layout migration/upgrade system
 - [ ] Hot-reload layouts without restart
@@ -183,7 +182,7 @@ Inspired by Jef Raskin's "The Humane Interface" - spatial navigation over window
 ## Technical Debt
 
 ### High Priority
-- [ ] Layout loading needs to start FIFO/Socket handlers
+- [x] Layout loading needs to start FIFO/Socket handlers
 - [ ] Test coverage (currently minimal)
 - [ ] Error handling consistency
 - [ ] Memory leak investigation (long-running sessions)
@@ -279,11 +278,12 @@ Inspired by Jef Raskin's "The Humane Interface" - spatial navigation over window
 
 ## Next Session Priorities
 
-1. **Fix layout loading** - Auto-start FIFO/Socket zones
-2. **Add `--layout` CLI flag** - Load layout on startup
-3. **Create layout templates** - 5-10 ready-to-use layouts
+1. ~~**Fix layout loading** - Auto-start FIFO/Socket zones~~ ✅
+2. ~~**Add `--layout` CLI flag** - Load layout on startup~~ ✅
+3. ~~**Create layout templates** - 5-10 ready-to-use layouts~~ ✅ (9 templates)
 4. **Buffer viewer** - `:zone buffer NAME` command
 5. **Test coverage** - Add unit tests for zone handlers
+6. **Layout validation** - Error reporting for invalid layouts
 
 ---
 
