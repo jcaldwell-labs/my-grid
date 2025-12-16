@@ -1,8 +1,8 @@
-# my-grid Showcase Demo v2 - Feature-Rich Training Video
+# my-grid Showcase Demo v3 - Feature-Rich Training Video
 # Duration: ~260 seconds (4+ minutes)
-# Features: readable figlet, real boxes borders, live typing, top output, navigation
+# Fixes: banner figlet font, real /usr/bin/boxes, mode setter
 
-Output "/home/be-dev-agent/projects/active/my-grid/demo/output/my-grid-showcase-v2.mp4"
+Output "/home/be-dev-agent/projects/active/my-grid/demo/output/my-grid-showcase-v3.mp4"
 
 Set Shell "bash"
 Set FontSize 14
@@ -16,7 +16,7 @@ Type "clear"
 Enter
 Sleep 300ms
 
-Type "# my-grid Showcase Demo v2"
+Type "# my-grid Showcase Demo v3"
 Enter
 Sleep 500ms
 
