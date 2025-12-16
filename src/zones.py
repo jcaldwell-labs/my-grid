@@ -1243,10 +1243,12 @@ class Clipboard:
             text = self.text
 
             # Try different clipboard commands
-            for cmd in [['xclip', '-selection', 'clipboard'],
+            # WSL: prefer clip.exe for Windows clipboard integration
+            for cmd in [['clip.exe'],  # WSL -> Windows
+                        ['xclip', '-selection', 'clipboard'],
                         ['xsel', '--clipboard', '--input'],
                         ['pbcopy'],  # macOS
-                        ['clip']]:  # Windows
+                        ['clip']]:  # Windows native
                 try:
                     proc = subprocess.run(
                         cmd,
@@ -1274,10 +1276,12 @@ class Clipboard:
             import subprocess
 
             # Try different clipboard commands
-            for cmd in [['xclip', '-selection', 'clipboard', '-o'],
+            # WSL: prefer powershell.exe for Windows clipboard integration
+            for cmd in [['powershell.exe', '-command', 'Get-Clipboard'],  # WSL -> Windows
+                        ['xclip', '-selection', 'clipboard', '-o'],
                         ['xsel', '--clipboard', '--output'],
                         ['pbpaste'],  # macOS
-                        ['powershell', '-command', 'Get-Clipboard']]:  # Windows
+                        ['powershell', '-command', 'Get-Clipboard']]:  # Windows native
                 try:
                     proc = subprocess.run(
                         cmd,
