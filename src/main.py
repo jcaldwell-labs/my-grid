@@ -1816,7 +1816,8 @@ class Application:
 
         else:
             return ModeResult(
-                message="Usage: session list|restore|save|on|off|clear"
+                message="Usage: session list|restore|save|on|off|clear",
+                message_frames=60
             )
 
     def _cmd_layout(self, args: list[str]) -> ModeResult:
