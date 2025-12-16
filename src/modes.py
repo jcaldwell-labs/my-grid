@@ -657,7 +657,7 @@ class ModeStateMachine:
 
     def _cmd_help(self, args: list[str]) -> ModeResult:
         """Show help."""
-        return ModeResult(command="help", message="Help requested")
+        return ModeResult(command="help")
 
     def _cmd_marks(self, args: list[str]) -> ModeResult:
         """List all bookmarks."""

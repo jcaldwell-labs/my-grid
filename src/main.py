@@ -465,19 +465,17 @@ class Application:
         # Check mapped actions
         if key in key_map:
             action = key_map[key]
-            # In edit/command mode, some keys type instead of action
+            # In edit/command mode, letter keys type instead of triggering actions
             if self.state_machine.mode in (Mode.EDIT, Mode.COMMAND):
-                if action in (Action.MOVE_UP, Action.MOVE_DOWN,
-                             Action.MOVE_LEFT, Action.MOVE_RIGHT):
-                    # Arrow keys still navigate
-                    if key in (curses.KEY_UP, curses.KEY_DOWN,
-                              curses.KEY_LEFT, curses.KEY_RIGHT):
-                        return InputEvent(action=action)
-                    # WASD types in edit mode
-                    if self.state_machine.mode == Mode.EDIT:
-                        return InputEvent(char=chr(key))
-                    # WASD navigates command buffer
+                # Allow arrow keys, function keys, and special keys
+                if key in (curses.KEY_UP, curses.KEY_DOWN,
+                          curses.KEY_LEFT, curses.KEY_RIGHT,
+                          curses.KEY_BACKSPACE, curses.KEY_DC,
+                          curses.KEY_F1, 27, 10, 13, 127):
                     return InputEvent(action=action)
+                # Letter/number keys should type as characters
+                if 32 <= key <= 126:
+                    return InputEvent(char=chr(key))
             return InputEvent(action=action)
 
         # Printable characters
