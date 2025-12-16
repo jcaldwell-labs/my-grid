@@ -745,6 +745,7 @@ class Application:
     :zone watch NAME W H INT CMD - Create watch zone (auto-refresh)
     :zone refresh NAME          - Manually refresh pipe/watch
     :zone pause/resume NAME     - Control watch zones
+    :zone buffer NAME           - View full buffer (scrollable)
 
   PTY ZONES (Unix):
     :zone pty NAME W H [SHELL]  - Create live terminal zone
@@ -812,6 +813,116 @@ class Application:
             elif key in (ord('p'), curses.KEY_LEFT, curses.KEY_UP):
                 current_page = (current_page - 1) % len(pages)
             elif key in (ord('q'), 27, ord('Q')):  # q, Esc, Q
+                break
+
+        # Restore timeout if joystick/server is active
+        if self._joystick_enabled or self._server_config:
+            self.stdscr.timeout(50)
+
+    def _show_buffer_viewer(self, zone_name: str, lines: list[str]) -> None:
+        """Show scrollable buffer viewer for zone content."""
+        scroll_offset = 0
+        search_term = ""
+        search_matches: list[int] = []  # Line numbers with matches
+        current_match = 0
+
+        # Disable timeout for blocking input
+        self.stdscr.timeout(-1)
+
+        while True:
+            self.stdscr.clear()
+            height, width = self.stdscr.getmaxyx()
+
+            # Header
+            header = f" Zone Buffer: {zone_name} ({len(lines)} lines)"
+            if search_term:
+                header += f" | Search: '{search_term}' ({len(search_matches)} matches)"
+            header = header[:width-1]
+            try:
+                self.stdscr.attron(curses.A_REVERSE)
+                self.stdscr.addstr(0, 0, header.ljust(width-1))
+                self.stdscr.attroff(curses.A_REVERSE)
+            except curses.error:
+                pass
+
+            # Content area (leave room for header and footer)
+            content_height = height - 3
+            visible_lines = lines[scroll_offset:scroll_offset + content_height]
+
+            for row, line in enumerate(visible_lines):
+                line_num = scroll_offset + row
+                # Truncate line to fit
+                display_line = line[:width-8] if len(line) > width-8 else line
+                prefix = f"{line_num+1:5} "
+                try:
+                    # Highlight search matches
+                    if search_term and line_num in search_matches:
+                        self.stdscr.attron(curses.A_BOLD)
+                        self.stdscr.addstr(row + 1, 0, prefix + display_line)
+                        self.stdscr.attroff(curses.A_BOLD)
+                    else:
+                        self.stdscr.addstr(row + 1, 0, prefix + display_line)
+                except curses.error:
+                    pass
+
+            # Footer with controls
+            footer = " [j/↓]Down [k/↑]Up [g]Top [G]End [/]Search [n]Next [N]Prev [q]Quit"
+            scroll_info = f" Line {scroll_offset+1}-{min(scroll_offset+content_height, len(lines))}/{len(lines)}"
+            footer_text = (footer + scroll_info)[:width-1]
+            try:
+                self.stdscr.attron(curses.A_REVERSE)
+                self.stdscr.addstr(height-1, 0, footer_text.ljust(width-1))
+                self.stdscr.attroff(curses.A_REVERSE)
+            except curses.error:
+                pass
+
+            self.stdscr.refresh()
+
+            key = self.renderer.get_input()
+
+            # Navigation
+            if key in (ord('j'), curses.KEY_DOWN):
+                if scroll_offset < len(lines) - content_height:
+                    scroll_offset += 1
+            elif key in (ord('k'), curses.KEY_UP):
+                if scroll_offset > 0:
+                    scroll_offset -= 1
+            elif key in (ord('d'), curses.KEY_NPAGE):  # Page down
+                scroll_offset = min(scroll_offset + content_height, max(0, len(lines) - content_height))
+            elif key in (ord('u'), curses.KEY_PPAGE):  # Page up
+                scroll_offset = max(0, scroll_offset - content_height)
+            elif key == ord('g'):  # Top
+                scroll_offset = 0
+            elif key == ord('G'):  # Bottom
+                scroll_offset = max(0, len(lines) - content_height)
+            elif key == ord('/'):  # Search
+                # Simple search input
+                curses.echo()
+                self.stdscr.addstr(height-1, 0, "/".ljust(width-1))
+                self.stdscr.move(height-1, 1)
+                try:
+                    search_bytes = self.stdscr.getstr(height-1, 1, 40)
+                    search_term = search_bytes.decode('utf-8', errors='replace')
+                except:
+                    search_term = ""
+                curses.noecho()
+                # Find matches
+                search_matches = []
+                if search_term:
+                    for i, line in enumerate(lines):
+                        if search_term.lower() in line.lower():
+                            search_matches.append(i)
+                    current_match = 0
+                    # Jump to first match
+                    if search_matches:
+                        scroll_offset = max(0, search_matches[0] - content_height // 2)
+            elif key == ord('n') and search_matches:  # Next match
+                current_match = (current_match + 1) % len(search_matches)
+                scroll_offset = max(0, search_matches[current_match] - content_height // 2)
+            elif key == ord('N') and search_matches:  # Prev match
+                current_match = (current_match - 1) % len(search_matches)
+                scroll_offset = max(0, search_matches[current_match] - content_height // 2)
+            elif key in (ord('q'), 27):  # q or Esc
                 break
 
         # Restore timeout if joystick/server is active
@@ -1029,6 +1140,7 @@ class Application:
             :zone refresh NAME                - Refresh pipe/watch zone
             :zone pause NAME                  - Pause watch zone
             :zone resume NAME                 - Resume watch zone
+            :zone buffer NAME                 - View full zone buffer (scrollable)
             :zone pty NAME W H [SHELL]        - Create PTY zone (Unix only)
             :zone send NAME TEXT              - Send text to PTY zone
             :zone focus NAME                  - Focus PTY zone
@@ -1260,6 +1372,19 @@ class Application:
             if self.zone_executor.resume_zone(args[1]):
                 return ModeResult(message=f"Resumed zone '{args[1]}'")
             return ModeResult(message=f"Zone '{args[1]}' not found or not a watch zone")
+
+        # :zone buffer NAME
+        elif subcmd == "buffer":
+            if len(args) < 2:
+                return ModeResult(message="Usage: zone buffer NAME")
+            zone = self.zone_manager.get(args[1])
+            if zone is None:
+                return ModeResult(message=f"Zone '{args[1]}' not found")
+            lines = zone.content_lines
+            if not lines:
+                return ModeResult(message=f"Zone '{args[1]}' buffer is empty")
+            self._show_buffer_viewer(zone.name, lines)
+            return ModeResult()
 
         # :zone pty NAME W H [SHELL]
         elif subcmd == "pty":
