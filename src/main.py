@@ -169,7 +169,7 @@ class Application:
         except Exception as e:
             self._show_message(f"Error loading: {e}")
 
-    def _show_message(self, message: str, frames: int = 60) -> None:
+    def _show_message(self, message: str, frames: int = 2) -> None:
         """Show a temporary status message."""
         self._status_message = message
         self._status_message_frames = frames
@@ -665,17 +665,18 @@ class Application:
         self._show_message("New canvas created")
 
     def _show_help(self) -> None:
-        """Show help screen."""
+        """Show help screen with multiple pages."""
         # Build joystick status line
         joy_status = ""
         if self._joystick_enabled and self.joystick.is_connected:
             info = self.joystick.get_info()
             joy_status = f"  JOYSTICK: {info['name']} (connected)\n"
             joy_status += "    D-pad/Stick   - Move cursor       Button A      - Enter EDIT mode\n"
-            joy_status += "    Button B      - Exit to NAV\n"
+            joy_status += "    Button B      - Exit to NAV\n\n"
 
-        help_text = f"""
-  my-grid - ASCII Canvas Editor
+        # Page 1: Basic navigation and modes
+        page1 = f"""
+  my-grid - ASCII Canvas Editor                                    [Page 1/3]
 
   MODES:
     NAV (default) - Navigate canvas    PAN (p)       - Pan viewport
@@ -685,38 +686,107 @@ class Application:
     wasd / arrows - Move cursor        WASD          - Fast move (10x)
 
   BOOKMARKS:
-    m + key       - Set mark at cursor (a-z, 0-9)
-    ' + key       - Jump to mark
-    :marks        - List all marks
-    :delmark X    - Delete mark X
+    m + key       - Set mark (a-z, 0-9)    ' + key   - Jump to mark
+    :marks        - List all marks         :delmark X - Delete mark X
 
-  COMMANDS:
-    :q / :wq      - Quit / Save+quit   :w            - Save
-    :goto X Y     - Move to position   :origin here  - Set origin
-    :clear        - Clear canvas       :export       - Export as text
-    :grid N       - Set grid interval  :rect W H     - Draw rectangle
-    :help / :?    - This help screen
+  DRAWING:
+    :rect W H [c] - Draw rectangle         :line X Y  - Draw line to X,Y
+    :text MSG     - Write text             :box STYLE TEXT - ASCII box
+    :figlet TEXT  - ASCII art text         :pipe CMD  - Command output
 
-  KEYS:
+  GRID & VIEW:
     g / G         - Toggle major/minor grid
-    0             - Toggle origin marker
-    Ctrl+S        - Save               Esc           - Exit mode
-    F1            - This help          q             - Quit
+    0             - Toggle origin marker   :grid [mode] - lines/markers/dots/off
+    :grid rulers  - Toggle rulers          :grid labels - Toggle coord labels
 
-{joy_status}  Press any key to continue...
-"""
-        self.stdscr.clear()
-        for i, line in enumerate(help_text.strip().split('\n')):
-            try:
-                self.stdscr.addstr(i, 0, line)
-            except curses.error:
-                pass
-        self.stdscr.refresh()
+{joy_status}  [n/Space] Next page | [p] Prev | [q/Esc] Close"""
 
-        # Wait for actual keypress (disable timeout temporarily)
-        self.stdscr.timeout(-1)  # Block until key pressed
-        self.renderer.get_input()
-        # Restore timeout if joystick is active
+        # Page 2: Zones and dynamic content
+        page2 = """
+  ZONES - Named regions for organization                           [Page 2/3]
+
+  STATIC ZONES:
+    :zone create NAME X Y W H   - Create zone at coordinates
+    :zone create NAME here W H  - Create zone at cursor
+    :zone delete NAME           - Delete zone
+    :zone goto NAME             - Jump to zone center
+    :zones                      - List all zones
+
+  DYNAMIC ZONES:
+    :zone pipe NAME W H CMD     - Create pipe zone (command output)
+    :zone watch NAME W H INT CMD - Create watch zone (auto-refresh)
+    :zone refresh NAME          - Manually refresh pipe/watch
+    :zone pause/resume NAME     - Control watch zones
+
+  PTY ZONES (Unix):
+    :zone pty NAME W H [SHELL]  - Create live terminal zone
+    :zone send NAME TEXT        - Send text to PTY
+    :zone focus NAME            - Focus PTY (Enter in zone also focuses)
+    Esc                         - Unfocus PTY
+
+  EXTERNAL CONNECTORS:
+    :zone fifo NAME W H PATH    - Create FIFO zone (Unix)
+    :zone socket NAME W H PORT  - Create socket zone (TCP listener)
+
+  [n/Space] Next page | [p] Prev | [q/Esc] Close"""
+
+        # Page 3: Layouts, clipboard, file operations
+        page3 = """
+  LAYOUTS & CLIPBOARD                                              [Page 3/3]
+
+  LAYOUTS:
+    :layout list              - List saved layouts
+    :layout save NAME [DESC]  - Save current zones as layout
+    :layout load NAME         - Load a layout
+    :layout delete NAME       - Delete a layout
+
+  CLIPBOARD:
+    :yank W H                 - Yank region at cursor
+    :yank zone NAME           - Yank zone content
+    :paste                    - Paste at cursor
+    :clipboard                - Show clipboard info
+    :clipboard zone [NAME]    - Create clipboard zone
+
+  FILE OPERATIONS:
+    :w / :write     - Save         :saveas FILE  - Save as
+    :q / :quit      - Quit         :wq           - Save and quit
+    :export [FILE]  - Export text  :import FILE  - Import text
+    Ctrl+S          - Save         Ctrl+O        - Open
+    Ctrl+N          - New          F1            - This help
+
+  EXTERNAL TOOLS:
+    :tools          - Show tool availability (boxes, figlet)
+    :box list       - List box styles
+    :figlet list    - List figlet fonts
+
+  [n/Space] Next page | [p] Prev | [q/Esc] Close"""
+
+        pages = [page1, page2, page3]
+        current_page = 0
+
+        # Disable timeout for blocking input
+        self.stdscr.timeout(-1)
+
+        while True:
+            self.stdscr.clear()
+            for i, line in enumerate(pages[current_page].strip().split('\n')):
+                try:
+                    self.stdscr.addstr(i, 0, line)
+                except curses.error:
+                    pass
+            self.stdscr.refresh()
+
+            key = self.renderer.get_input()
+
+            # Navigation
+            if key in (ord('n'), ord(' '), curses.KEY_RIGHT, curses.KEY_DOWN):
+                current_page = (current_page + 1) % len(pages)
+            elif key in (ord('p'), curses.KEY_LEFT, curses.KEY_UP):
+                current_page = (current_page - 1) % len(pages)
+            elif key in (ord('q'), 27, ord('Q')):  # q, Esc, Q
+                break
+
+        # Restore timeout if joystick/server is active
         if self._joystick_enabled or self._server_config:
             self.stdscr.timeout(50)
 
