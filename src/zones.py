@@ -976,9 +976,7 @@ class PTYHandler:
                     clean_line = self._strip_ansi(line)
                     zone.append_content(clean_line)
 
-                # Trim to fit zone height (keep most recent)
-                if len(zone.content_lines) > content_h:
-                    zone._content_lines = zone._content_lines[-content_h:]
+                # Note: zone.append_content() already handles max_lines trimming
 
             except OSError:
                 # FD closed or error
@@ -1211,7 +1209,7 @@ class Clipboard:
             for col, char in enumerate(line):
                 if skip_spaces and char == ' ':
                     continue
-                canvas.set_char(x + col, y + row, char)
+                canvas.set(x + col, y + row, char)
             max_width = max(max_width, len(line))
 
         return (max_width, len(self._buffer))
@@ -1401,9 +1399,7 @@ class FIFOHandler:
                             if line:  # Skip empty lines
                                 zone.append_content(line.rstrip())
 
-                        # Trim to fit zone height
-                        if len(zone.content_lines) > content_h:
-                            zone._content_lines = zone._content_lines[-content_h:]
+                        # Note: zone.append_content() already handles max_lines trimming
 
                 finally:
                     os.close(fd)
@@ -1555,9 +1551,7 @@ class SocketHandler:
                             if line.strip():
                                 zone.append_content(line.rstrip())
 
-                        # Trim to fit zone height
-                        if len(zone.content_lines) > content_h:
-                            zone._content_lines = zone._content_lines[-content_h:]
+                        # Note: zone.append_content() already handles max_lines trimming
 
                 finally:
                     client.close()
