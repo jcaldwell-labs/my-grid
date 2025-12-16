@@ -40,6 +40,7 @@ src/
 ├── modes.py       # State machine: NAV, PAN, EDIT, COMMAND modes
 ├── project.py     # JSON save/load, text export/import
 ├── zones.py       # Zone management - named regions with dynamic content
+├── layouts.py     # Workspace templates - YAML save/load for zone layouts
 ├── external.py    # External tool integration (boxes, figlet, pipes)
 ├── joystick.py    # USB controller/joystick input handling
 └── main.py        # Application class, main loop, command handlers
@@ -188,6 +189,59 @@ Note: PTY zones require Unix-like systems (Linux, macOS, WSL). Not available on 
 
 ---
 
+## Layouts (Workspace Templates)
+
+Layouts save and restore zone configurations. Stored in `~/.config/mygrid/layouts/` (Unix) or `%APPDATA%/mygrid/layouts/` (Windows).
+
+### Layout Commands
+
+| Command | Description |
+|---------|-------------|
+| `:layout list` | List available layouts |
+| `:layout load NAME` | Load a layout (creates zones) |
+| `:layout load NAME --clear` | Load layout, clearing existing zones first |
+| `:layout save NAME [DESC]` | Save current zones as layout |
+| `:layout delete NAME` | Delete a layout |
+| `:layout info NAME` | Show layout details |
+
+### Default Layouts
+
+Three default layouts are installed automatically:
+
+- **devops** - System monitoring with logs, processes, disk, and terminal
+- **development** - Git status, file listing, and editor terminal
+- **monitoring** - CPU, memory, network, and disk monitoring
+
+### Layout File Format (YAML)
+
+```yaml
+name: My Workspace
+description: Custom workspace layout
+cursor:
+  x: 0
+  y: 0
+zones:
+  - name: LOGS
+    type: watch
+    x: 0
+    y: 0
+    width: 80
+    height: 15
+    command: "tail -f /var/log/syslog"
+    interval: 5
+    bookmark: "l"
+
+  - name: TERMINAL
+    type: pty
+    x: 85
+    y: 0
+    width: 60
+    height: 20
+    bookmark: "t"
+```
+
+---
+
 ## Commands
 
 | Command | Aliases | Description |
@@ -211,6 +265,7 @@ Note: PTY zones require Unix-like systems (Linux, macOS, WSL). Not available on 
 | `delmarks` | - | Delete all bookmarks |
 | `zone SUBCMD` | - | Zone management (see Zones section) |
 | `zones` | - | List all zones |
+| `layout SUBCMD` | - | Layout management (see Layouts section) |
 | `box [STYLE] TEXT` | - | Draw ASCII box (requires `boxes`) |
 | `figlet [-f FONT] TEXT` | - | Draw ASCII art text (requires `figlet`) |
 | `pipe COMMAND` | - | Execute command, write output at cursor |

@@ -21,6 +21,7 @@ from project import Project, add_recent_project, suggest_filename
 from command_queue import CommandQueue, CommandResponse, send_response
 from server import APIServer, ServerConfig
 from zones import Zone, ZoneManager, ZoneExecutor, ZoneType, PTYHandler, PTY_AVAILABLE
+from layouts import LayoutManager, install_default_layouts
 from external import (
     tool_available, get_tool_status,
     draw_box, get_boxes_styles,
@@ -55,6 +56,10 @@ class Application:
         self.zone_manager = ZoneManager()
         self.zone_executor = ZoneExecutor(self.zone_manager)
         self.pty_handler = PTYHandler(self.zone_manager)
+        self.layout_manager = LayoutManager()
+
+        # Install default layouts on first run
+        install_default_layouts()
 
         # PTY focus tracking
         self._focused_pty: str | None = None  # Name of focused PTY zone
@@ -111,6 +116,7 @@ class Application:
         self.state_machine.register_command("figlet", self._cmd_figlet)
         self.state_machine.register_command("pipe", self._cmd_pipe)
         self.state_machine.register_command("tools", self._cmd_tools)
+        self.state_machine.register_command("layout", self._cmd_layout)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -1344,6 +1350,117 @@ class Application:
         parts = [f"{name}: {'OK' if available else 'NOT FOUND'}"
                  for name, available in status.items()]
         return ModeResult(message="Tools: " + ", ".join(parts))
+
+    def _cmd_layout(self, args: list[str]) -> ModeResult:
+        """
+        Layout management command.
+
+        Usage:
+            :layout list              - List available layouts
+            :layout load NAME         - Load a layout
+            :layout save NAME [DESC]  - Save current zones as layout
+            :layout delete NAME       - Delete a layout
+            :layout info NAME         - Show layout details
+        """
+        if not args:
+            return ModeResult(message="Usage: layout list|load|save|delete|info ...")
+
+        subcmd = args[0].lower()
+
+        # :layout list
+        if subcmd == "list":
+            layouts = self.layout_manager.list_layouts()
+            if not layouts:
+                return ModeResult(message="No layouts found. Use ':layout save NAME' to create one.")
+            # Show names with descriptions
+            parts = []
+            for name, desc in layouts:
+                if desc:
+                    parts.append(f"{name} ({desc[:20]})")
+                else:
+                    parts.append(name)
+            return ModeResult(message=f"Layouts: {', '.join(parts)}")
+
+        # :layout load NAME [--clear]
+        elif subcmd == "load":
+            if len(args) < 2:
+                return ModeResult(message="Usage: layout load NAME [--clear]")
+            name = args[1]
+            clear_existing = "--clear" in args
+
+            layout = self.layout_manager.load(name)
+            if not layout:
+                return ModeResult(message=f"Layout '{name}' not found")
+
+            created, errors = self.layout_manager.apply_layout(
+                layout,
+                self.zone_manager,
+                self.zone_executor,
+                pty_handler=self.pty_handler,
+                clear_existing=clear_existing,
+            )
+
+            # Apply cursor/viewport if specified
+            if layout.cursor_x is not None:
+                self.viewport.cursor.set(layout.cursor_x, layout.cursor_y or 0)
+            if layout.viewport_x is not None:
+                self.viewport.pan_to(layout.viewport_x, layout.viewport_y or 0)
+
+            self.project.mark_dirty()
+
+            msg = f"Loaded layout '{name}': {created} zones created"
+            if errors:
+                msg += f" ({len(errors)} errors)"
+            return ModeResult(message=msg)
+
+        # :layout save NAME [DESCRIPTION]
+        elif subcmd == "save":
+            if len(args) < 2:
+                return ModeResult(message="Usage: layout save NAME [DESCRIPTION]")
+            name = args[1]
+            description = " ".join(args[2:]) if len(args) > 2 else ""
+
+            if len(self.zone_manager) == 0:
+                return ModeResult(message="No zones to save. Create zones first.")
+
+            cursor = (self.viewport.cursor.x, self.viewport.cursor.y)
+            viewport = (self.viewport.x, self.viewport.y)
+
+            path = self.layout_manager.save_from_zones(
+                name, description, self.zone_manager,
+                cursor=cursor, viewport=viewport
+            )
+            return ModeResult(message=f"Saved layout '{name}' ({len(self.zone_manager)} zones)")
+
+        # :layout delete NAME
+        elif subcmd == "delete":
+            if len(args) < 2:
+                return ModeResult(message="Usage: layout delete NAME")
+            name = args[1]
+            if self.layout_manager.delete(name):
+                return ModeResult(message=f"Deleted layout '{name}'")
+            return ModeResult(message=f"Layout '{name}' not found")
+
+        # :layout info NAME
+        elif subcmd == "info":
+            if len(args) < 2:
+                return ModeResult(message="Usage: layout info NAME")
+            name = args[1]
+            layout = self.layout_manager.load(name)
+            if not layout:
+                return ModeResult(message=f"Layout '{name}' not found")
+
+            zone_types = {}
+            for z in layout.zones:
+                zone_types[z.zone_type] = zone_types.get(z.zone_type, 0) + 1
+
+            type_info = ", ".join(f"{k}:{v}" for k, v in zone_types.items())
+            return ModeResult(
+                message=f"Layout '{name}': {len(layout.zones)} zones ({type_info}) - {layout.description}"
+            )
+
+        else:
+            return ModeResult(message="Usage: layout list|load|save|delete|info ...")
 
 
 def main(stdscr: "curses.window", args: argparse.Namespace) -> None:
