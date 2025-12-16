@@ -169,6 +169,34 @@ class Application:
         except Exception as e:
             self._show_message(f"Error loading: {e}")
 
+    def load_layout_by_name(self, name: str) -> None:
+        """Load a layout by name on startup."""
+        layout = self.layout_manager.load(name)
+        if not layout:
+            self._show_message(f"Layout '{name}' not found")
+            return
+
+        created, errors = self.layout_manager.apply_layout(
+            layout,
+            self.zone_manager,
+            self.zone_executor,
+            pty_handler=self.pty_handler,
+            fifo_handler=self.fifo_handler,
+            socket_handler=self.socket_handler,
+            clear_existing=False,
+        )
+
+        # Apply cursor/viewport if specified
+        if layout.cursor_x is not None:
+            self.viewport.cursor.set(layout.cursor_x, layout.cursor_y or 0)
+        if layout.viewport_x is not None:
+            self.viewport.pan_to(layout.viewport_x, layout.viewport_y or 0)
+
+        msg = f"Loaded layout '{name}': {created} zones"
+        if errors:
+            msg += f" ({len(errors)} errors)"
+        self._show_message(msg, frames=60)  # Show longer on startup
+
     def _show_message(self, message: str, frames: int = 2) -> None:
         """Show a temporary status message."""
         self._status_message = message
@@ -1767,6 +1795,10 @@ def main(stdscr: "curses.window", args: argparse.Namespace) -> None:
     if args.file:
         app.load_file(args.file)
 
+    # Load layout if specified
+    if args.layout:
+        app.load_layout_by_name(args.layout)
+
     app.run()
 
 
@@ -1782,6 +1814,8 @@ Examples:
   %(prog)s drawing.txt        Import text file
   %(prog)s --server           Start with API server enabled
   %(prog)s --server --port 9000  Use custom port
+  %(prog)s --layout dashboard   Load layout on startup
+  %(prog)s --layout live-dashboard --server  Layout with API server
 
 Keys:
   wasd/arrows  Move cursor      i  Enter edit mode
@@ -1838,6 +1872,14 @@ API Server:
         '--headless',
         action='store_true',
         help='Run API server without curses UI (for background/daemon use)'
+    )
+
+    # Layout options
+    layout_group = parser.add_argument_group('Layout')
+    layout_group.add_argument(
+        '--layout',
+        metavar='NAME',
+        help='Load a layout on startup (e.g., --layout live-dashboard)'
     )
 
     return parser.parse_args()
