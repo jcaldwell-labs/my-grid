@@ -618,7 +618,13 @@ class Application:
             except curses.error:
                 pass
         self.stdscr.refresh()
+
+        # Wait for actual keypress (disable timeout temporarily)
+        self.stdscr.timeout(-1)  # Block until key pressed
         self.renderer.get_input()
+        # Restore timeout if joystick is active
+        if self._joystick_enabled or self._server_config:
+            self.stdscr.timeout(50)
 
     # Command handlers
     def _cmd_save(self, args: list[str]) -> ModeResult:
