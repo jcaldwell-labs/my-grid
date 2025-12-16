@@ -33,7 +33,7 @@ def get_layouts_dir() -> Path:
 class LayoutZone:
     """Zone definition within a layout."""
     name: str
-    zone_type: str  # static, pipe, watch, pty
+    zone_type: str  # static, pipe, watch, pty, fifo, socket
     x: int
     y: int
     width: int
@@ -41,6 +41,8 @@ class LayoutZone:
     command: str | None = None
     interval: float | None = None  # For watch zones
     shell: str | None = None  # For PTY zones
+    path: str | None = None  # For FIFO zones
+    port: int | None = None  # For socket zones
     bookmark: str | None = None
     description: str = ""
 
@@ -60,6 +62,10 @@ class LayoutZone:
             data["interval"] = self.interval
         if self.shell:
             data["shell"] = self.shell
+        if self.path:
+            data["path"] = self.path
+        if self.port is not None:
+            data["port"] = self.port
         if self.bookmark:
             data["bookmark"] = self.bookmark
         if self.description:
@@ -79,6 +85,8 @@ class LayoutZone:
             command=data.get("command"),
             interval=data.get("interval"),
             shell=data.get("shell"),
+            path=data.get("path"),
+            port=data.get("port"),
             bookmark=data.get("bookmark"),
             description=data.get("description", ""),
         )
@@ -247,6 +255,8 @@ class LayoutManager:
                 command=zone.config.command,
                 interval=zone.config.refresh_interval,
                 shell=zone.config.shell if zone.config.shell != "/bin/bash" else None,
+                path=zone.config.path,
+                port=zone.config.port,
                 bookmark=zone.bookmark,
                 description=zone.description,
             )
@@ -270,6 +280,8 @@ class LayoutManager:
         zone_manager: ZoneManager,
         zone_executor: ZoneExecutor,
         pty_handler: Any | None = None,
+        fifo_handler: Any | None = None,
+        socket_handler: Any | None = None,
         clear_existing: bool = False,
     ) -> tuple[int, list[str]]:
         """
@@ -280,6 +292,8 @@ class LayoutManager:
             zone_manager: ZoneManager to add zones to
             zone_executor: ZoneExecutor for starting watchers
             pty_handler: PTYHandler for starting PTY sessions
+            fifo_handler: FIFOHandler for starting FIFO zones
+            socket_handler: SocketHandler for starting socket zones
             clear_existing: If True, clear existing zones first
 
         Returns (zones_created, errors) tuple.
@@ -306,6 +320,10 @@ class LayoutManager:
                     config.refresh_interval = lz.interval
                 if lz.shell:
                     config.shell = lz.shell
+                if lz.path:
+                    config.path = lz.path
+                if lz.port is not None:
+                    config.port = lz.port
 
                 zone = zone_manager.create(
                     name=lz.name,
@@ -326,6 +344,12 @@ class LayoutManager:
                 elif zone_type == ZoneType.PTY and pty_handler:
                     if not pty_handler.create_pty(zone):
                         errors.append(f"Failed to create PTY for '{lz.name}'")
+                elif zone_type == ZoneType.FIFO and fifo_handler:
+                    if not fifo_handler.create_fifo(zone):
+                        errors.append(f"Failed to create FIFO for '{lz.name}'")
+                elif zone_type == ZoneType.SOCKET and socket_handler:
+                    if not socket_handler.create_socket(zone):
+                        errors.append(f"Failed to create socket for '{lz.name}'")
 
                 created += 1
 

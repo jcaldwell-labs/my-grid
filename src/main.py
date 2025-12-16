@@ -492,7 +492,7 @@ class Application:
         args = parts[1:]
 
         # Look up command handler
-        handler = self.state_machine.commands.get(cmd_name)
+        handler = self.state_machine._command_handlers.get(cmd_name)
         if handler:
             return handler(args)
 
@@ -1554,6 +1554,8 @@ class Application:
                 self.zone_manager,
                 self.zone_executor,
                 pty_handler=self.pty_handler,
+                fifo_handler=self.fifo_handler,
+                socket_handler=self.socket_handler,
                 clear_existing=clear_existing,
             )
 
