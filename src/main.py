@@ -1737,7 +1737,7 @@ class Application:
         if subcmd == "list":
             sessions = self.session_manager.list_sessions()
             if not sessions:
-                return ModeResult(message="No sessions found")
+                return ModeResult(message="No sessions found", message_frames=60)
 
             # Show up to 10 sessions
             parts = []
