@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-my-grid Showcase Demo - Feature-Rich Training Video
+my-grid Showcase Demo - Feature-Rich Training Video (v2)
 
 A comprehensive demonstration of my-grid capabilities including:
-- Figlet banners and boxes styling
+- Figlet banners (standard font - readable)
+- Real boxes tool integration for proper borders
 - Live system data (pwd, ls, tree, top)
-- Real FIFO/external tool integration
-- Grid configuration options
-- Explanatory text for viewers
+- Actual typing in edit mode demonstration
+- Command mode demonstration
+- Navigation showcase
 
-Duration: ~180 seconds (3 minutes)
+Duration: ~240 seconds (4 minutes)
 
 Usage:
     python demo/showcase_demo.py [duration]
@@ -29,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from main import Application
 from renderer import GridLineMode
+from modes import Mode
 
 
 def run_command(cmd):
@@ -42,19 +44,28 @@ def run_command(cmd):
         return f"(error: {e})"
 
 
-def get_figlet(text, font="slant"):
-    """Generate figlet banner."""
+def get_figlet(text, font="standard"):
+    """Generate figlet banner using standard (readable) font."""
     return run_command(f"figlet -f {font} '{text}'")
 
 
-def get_boxes(text, style="ansi-rounded"):
-    """Wrap text in boxes style."""
-    return run_command(f"echo '{text}' | boxes -d {style}")
+def get_boxes(text, style="stone"):
+    """Wrap text in boxes style - uses actual boxes command."""
+    # Escape single quotes in text
+    safe_text = text.replace("'", "'\\''")
+    return run_command(f"echo '{safe_text}' | boxes -d {style}")
+
+
+def get_boxes_multiline(lines, style="stone"):
+    """Wrap multiple lines in boxes style."""
+    text = '\n'.join(lines)
+    safe_text = text.replace("'", "'\\''")
+    return run_command(f"echo '{safe_text}' | boxes -d {style}")
 
 
 class ShowcaseDemo(Application):
     """
-    Feature-rich showcase demo with figlet, boxes, and live data.
+    Feature-rich showcase demo with figlet, boxes, live data, and typing demos.
     """
 
     def __init__(self, stdscr):
@@ -72,29 +83,43 @@ class ShowcaseDemo(Application):
         self.pan_progress = 1.0
         self.pan_duration = 1.5
 
+        # For typing animation
+        self.typing_text = ""
+        self.typing_index = 0
+        self.typing_x = 0
+        self.typing_y = 0
+        self.typing_delay = 0.1
+        self.typing_last_time = 0
+
     def _define_segments(self):
-        """Define showcase segments - 180 seconds total."""
+        """Define showcase segments - 240 seconds total."""
         segments = [
-            # Opening (0-25s)
-            (0, 25, self._segment_title_banner, "Grand opening with figlet"),
+            # Opening (0-20s)
+            (0, 20, self._segment_title_banner, "Grand opening with figlet"),
 
-            # Core Features (25-70s)
-            (25, 20, self._segment_what_is_mygrid, "What is my-grid?"),
-            (45, 25, self._segment_modes_explained, "Mode system explained"),
+            # What is my-grid (20-40s)
+            (20, 20, self._segment_what_is_mygrid, "What is my-grid?"),
 
-            # Live Data Showcase (70-110s)
-            (70, 20, self._segment_live_system_info, "Live system info"),
-            (90, 20, self._segment_live_directory, "Live directory listing"),
+            # Live typing demo (40-70s)
+            (40, 30, self._segment_typing_demo, "Live typing demonstration"),
 
-            # Grid Configuration (110-140s)
-            (110, 15, self._segment_grid_deep_dive, "Grid configuration"),
-            (125, 15, self._segment_grid_spacing, "Grid spacing options"),
+            # Command mode demo (70-95s)
+            (70, 25, self._segment_command_demo, "Command mode demonstration"),
 
-            # Zones & External Tools (140-165s)
-            (140, 25, self._segment_zones_showcase, "Zone types showcase"),
+            # Live system data with top (95-130s)
+            (95, 35, self._segment_live_data, "Live system data with top"),
 
-            # Finale (165-180s)
-            (165, 15, self._segment_grand_finale, "Grand finale"),
+            # Grid configuration (130-160s)
+            (130, 30, self._segment_grid_config, "Grid configuration"),
+
+            # Zones overview (160-200s)
+            (160, 40, self._segment_zones_overview, "Zone types overview"),
+
+            # Navigation showcase (200-230s)
+            (200, 30, self._segment_navigation_showcase, "Navigation showcase"),
+
+            # Finale (230-240s)
+            (230, 10, self._segment_finale, "Grand finale"),
         ]
         return segments
 
@@ -133,563 +158,534 @@ class ShowcaseDemo(Application):
     def _draw_multiline(self, x, y, text):
         """Draw multiline text at position."""
         for i, line in enumerate(text.split('\n')):
-            if line.strip():
+            if line:  # Draw even "empty" lines with spaces for boxes
                 self._execute_command(f"goto {x} {y + i}")
                 # Escape any problematic characters
                 safe_line = line.replace('"', "'")
                 self._execute_command(f"text {safe_line}")
 
-    def _draw_box_with_style(self, x, y, content, style="ansi-rounded"):
-        """Draw content wrapped in boxes style."""
-        boxed = get_boxes(content, style)
+    def _draw_boxed_content(self, x, y, lines, style="stone"):
+        """Draw content with real boxes borders."""
+        boxed = get_boxes_multiline(lines, style)
         self._draw_multiline(x, y, boxed)
+
+    def _simulate_typing(self, x, y, text, current_time):
+        """Simulate typing one character at a time. Returns True when done."""
+        if current_time - self.typing_last_time >= self.typing_delay:
+            if self.typing_index < len(text):
+                char = text[self.typing_index]
+                # Actually draw the character on canvas
+                self.canvas.set_cell(x + self.typing_index, y, char)
+                self.typing_index += 1
+                self.typing_last_time = current_time
+                return False
+        return self.typing_index >= len(text)
 
     # ========== SEGMENT ACTIONS ==========
 
     def _segment_title_banner(self, segment_time, dt):
-        """Grand opening with figlet banner."""
+        """Grand opening with readable figlet banner."""
         if segment_time < 0.5:
             self._pan_to(0, 0, duration=0.5)
 
-            # Big figlet title
-            banner = get_figlet("my-grid", "slant")
-            self._draw_multiline(10, 3, banner)
+            # Big figlet title - using standard font (readable!)
+            banner = get_figlet("my-grid", "standard")
+            self._draw_multiline(5, 2, banner)
 
-            # Tagline in a box
-            self._execute_command("goto 10 12")
-            self._execute_command("text ╭─────────────────────────────────────────────────────╮")
-            self._execute_command("goto 10 13")
-            self._execute_command("text │  Spatial Workspace • ASCII Canvas • Vim Navigation  │")
-            self._execute_command("goto 10 14")
-            self._execute_command("text ╰─────────────────────────────────────────────────────╯")
+        if 2.0 < segment_time < 2.5:
+            # Use real boxes for the tagline
+            tagline_box = get_boxes("Spatial Workspace  *  ASCII Canvas  *  Vim Navigation", "ansi-rounded")
+            self._draw_multiline(5, 10, tagline_box)
 
-        if 3.0 < segment_time < 3.5:
-            self._execute_command("goto 10 18")
-            self._execute_command("text ┌─────────────────────────────────────────────────────┐")
-            self._execute_command("goto 10 19")
-            self._execute_command("text │  THIS DEMO WILL SHOW YOU:                           │")
-            self._execute_command("goto 10 20")
-            self._execute_command("text │                                                     │")
-            self._execute_command("goto 10 21")
-            self._execute_command("text │  • Vim-style modes (NAV, EDIT, PAN, COMMAND)        │")
-            self._execute_command("goto 10 22")
-            self._execute_command("text │  • Infinite canvas with sparse storage              │")
-            self._execute_command("goto 10 23")
-            self._execute_command("text │  • Named zones for spatial organization             │")
-            self._execute_command("goto 10 24")
-            self._execute_command("text │  • Live data integration (pwd, ls, top)             │")
-            self._execute_command("goto 10 25")
-            self._execute_command("text │  • Grid customization & rulers                      │")
-            self._execute_command("goto 10 26")
-            self._execute_command("text │  • External tool integration (figlet, boxes)        │")
-            self._execute_command("goto 10 27")
-            self._execute_command("text └─────────────────────────────────────────────────────┘")
+        if 5.0 < segment_time < 5.5:
+            # Feature list with real boxes
+            features = [
+                "THIS DEMO WILL SHOW YOU:",
+                "",
+                "  * Vim-style modes (NAV, EDIT, PAN, COMMAND)",
+                "  * Live typing and drawing on the canvas",
+                "  * Real-time system data (top, ls, pwd)",
+                "  * Grid customization options",
+                "  * Named zones for organization",
+            ]
+            boxed = get_boxes_multiline(features, "stone")
+            self._draw_multiline(5, 15, boxed)
 
-        if 8.0 < segment_time < 8.5:
+        if 10.0 < segment_time < 10.5:
             self.renderer.grid.show_major_lines = True
             self.renderer.grid.line_mode = GridLineMode.MARKERS
-            self._show_message("Let's explore the infinite canvas...")
+            self._show_message("Welcome to my-grid! Let's explore...")
 
-        # Slowly pan right to show infinite space
-        if 12.0 < segment_time < 12.5:
-            self._pan_to(50, 0, duration=3.0)
+        # Pan to show canvas space
+        if 14.0 < segment_time < 14.5:
+            self._pan_to(30, 0, duration=2.0)
 
-        if 18.0 < segment_time < 18.5:
-            self._pan_to(0, 0, duration=2.0)
+        if 17.0 < segment_time < 17.5:
+            self._pan_to(0, 0, duration=1.5)
 
     def _segment_what_is_mygrid(self, segment_time, dt):
-        """Explain what my-grid is."""
+        """Explain what my-grid is with real boxes."""
         if segment_time < 0.5:
-            self._pan_to(0, 45, duration=1.0)
+            self._pan_to(0, 35, duration=1.0)
 
-            # Section banner
-            banner = get_figlet("WHAT?", "small")
-            self._draw_multiline(5, 48, banner)
-
-        if 2.0 < segment_time < 2.5:
-            self._execute_command("goto 5 56")
-            self._execute_command("text ╔═══════════════════════════════════════════════════════════╗")
-            self._execute_command("goto 5 57")
-            self._execute_command("text ║  my-grid is a terminal-based ASCII canvas editor         ║")
-            self._execute_command("goto 5 58")
-            self._execute_command("text ║                                                           ║")
-            self._execute_command("goto 5 59")
-            self._execute_command("text ║  Think of it as:                                          ║")
-            self._execute_command("goto 5 60")
-            self._execute_command("text ║    • Miro/Lucidchart for the terminal                     ║")
-            self._execute_command("goto 5 61")
-            self._execute_command("text ║    • Infinite whiteboard that lives in your shell         ║")
-            self._execute_command("goto 5 62")
-            self._execute_command("text ║    • Spatial memory workspace (Jef Raskin style)          ║")
-            self._execute_command("goto 5 63")
-            self._execute_command("text ╚═══════════════════════════════════════════════════════════╝")
-
-        if 6.0 < segment_time < 6.5:
-            self._execute_command("goto 5 67")
-            self._execute_command("text USE CASES:")
-            self._execute_command("goto 5 69")
-            self._execute_command("text   → System architecture diagrams")
-            self._execute_command("goto 5 70")
-            self._execute_command("text   → Sprint planning boards (Kanban)")
-            self._execute_command("goto 5 71")
-            self._execute_command("text   → Mind maps and brainstorming")
-            self._execute_command("goto 5 72")
-            self._execute_command("text   → Live dashboards with system data")
-            self._execute_command("goto 5 73")
-            self._execute_command("text   → Documentation and notes")
-
-        if 12.0 < segment_time < 12.5:
-            self._execute_command("goto 5 77")
-            self._execute_command("text TIP: Everything saves to JSON - version control friendly!")
-
-    def _segment_modes_explained(self, segment_time, dt):
-        """Explain the mode system."""
-        if segment_time < 0.5:
-            self._pan_to(0, 90, duration=1.0)
-
-            banner = get_figlet("MODES", "small")
-            self._draw_multiline(5, 93, banner)
-
-        if 2.0 < segment_time < 2.5:
-            self._execute_command("goto 5 101")
-            self._execute_command("text ┌────────────────────────────────────────────────────────────┐")
-            self._execute_command("goto 5 102")
-            self._execute_command("text │  NAV MODE (default)                                        │")
-            self._execute_command("goto 5 103")
-            self._execute_command("text │    wasd/arrows = move cursor                               │")
-            self._execute_command("goto 5 104")
-            self._execute_command("text │    WASD = fast move (10x)                                  │")
-            self._execute_command("goto 5 105")
-            self._execute_command("text │    The cursor is your presence on the infinite canvas      │")
-            self._execute_command("goto 5 106")
-            self._execute_command("text └────────────────────────────────────────────────────────────┘")
-
-        if 5.0 < segment_time < 5.5:
-            self._execute_command("goto 5 109")
-            self._execute_command("text ┌────────────────────────────────────────────────────────────┐")
-            self._execute_command("goto 5 110")
-            self._execute_command("text │  EDIT MODE (press 'i')                                     │")
-            self._execute_command("goto 5 111")
-            self._execute_command("text │    Type characters directly onto canvas                    │")
-            self._execute_command("goto 5 112")
-            self._execute_command("text │    Arrow keys still move cursor                            │")
-            self._execute_command("goto 5 113")
-            self._execute_command("text │    ESC = back to NAV mode                                  │")
-            self._execute_command("goto 5 114")
-            self._execute_command("text └────────────────────────────────────────────────────────────┘")
-
-        if 8.0 < segment_time < 8.5:
-            self._execute_command("goto 5 117")
-            self._execute_command("text ┌────────────────────────────────────────────────────────────┐")
-            self._execute_command("goto 5 118")
-            self._execute_command("text │  PAN MODE (press 'p')                                      │")
-            self._execute_command("goto 5 119")
-            self._execute_command("text │    wasd moves viewport, cursor stays centered              │")
-            self._execute_command("goto 5 120")
-            self._execute_command("text │    Great for exploring large canvases                      │")
-            self._execute_command("goto 5 121")
-            self._execute_command("text └────────────────────────────────────────────────────────────┘")
-
-        if 11.0 < segment_time < 11.5:
-            self._execute_command("goto 5 124")
-            self._execute_command("text ┌────────────────────────────────────────────────────────────┐")
-            self._execute_command("goto 5 125")
-            self._execute_command("text │  COMMAND MODE (press ':')                                  │")
-            self._execute_command("goto 5 126")
-            self._execute_command("text │    :rect 20 10     = draw rectangle                        │")
-            self._execute_command("goto 5 127")
-            self._execute_command("text │    :text Hello     = write text                            │")
-            self._execute_command("goto 5 128")
-            self._execute_command("text │    :goto 100 50    = jump to coordinates                   │")
-            self._execute_command("goto 5 129")
-            self._execute_command("text │    :w / :q         = save / quit (vim style!)              │")
-            self._execute_command("goto 5 130")
-            self._execute_command("text └────────────────────────────────────────────────────────────┘")
-
-        if 15.0 < segment_time < 15.5:
-            self._execute_command("goto 5 133")
-            self._execute_command("text ┌────────────────────────────────────────────────────────────┐")
-            self._execute_command("goto 5 134")
-            self._execute_command("text │  BOOKMARK MODE (press 'm' then a-z)                        │")
-            self._execute_command("goto 5 135")
-            self._execute_command("text │    Set named positions you can jump back to                │")
-            self._execute_command("goto 5 136")
-            self._execute_command("text │    Press ' then letter to return                           │")
-            self._execute_command("goto 5 137")
-            self._execute_command("text │    SPATIAL MEMORY - remember WHERE things are!             │")
-            self._execute_command("goto 5 138")
-            self._execute_command("text └────────────────────────────────────────────────────────────┘")
-
-        if 19.0 < segment_time < 19.5:
-            self._show_message("Press F1 anytime for full help!")
-
-    def _segment_live_system_info(self, segment_time, dt):
-        """Show live system information."""
-        if segment_time < 0.5:
-            self._pan_to(0, 150, duration=1.0)
-
-            banner = get_figlet("LIVE", "small")
-            self._draw_multiline(5, 153, banner)
-
-            self._execute_command("goto 30 153")
-            self._execute_command("text DATA")
-
-        if 2.0 < segment_time < 2.5:
-            self._execute_command("goto 5 161")
-            self._execute_command("text Zones can display LIVE system data!")
-            self._execute_command("goto 5 163")
-            self._execute_command("text PIPE zones: one-shot command output")
-            self._execute_command("goto 5 164")
-            self._execute_command("text WATCH zones: periodic refresh")
-
-        # Show current working directory
-        if 5.0 < segment_time < 5.5:
-            pwd = run_command("pwd")
-            self._execute_command("goto 5 168")
-            self._execute_command("text ╭─[ Current Directory ]─────────────────────────────────────╮")
-            self._execute_command(f"goto 5 169")
-            self._execute_command(f"text │  {pwd[:55]:<55} │")
-            self._execute_command("goto 5 170")
-            self._execute_command("text ╰────────────────────────────────────────────────────────────╯")
-
-        # Show hostname and user
-        if 8.0 < segment_time < 8.5:
-            hostname = run_command("hostname")
-            user = run_command("whoami")
-            self._execute_command("goto 5 173")
-            self._execute_command("text ╭─[ System ]────────────────────────────────────────────────╮")
-            self._execute_command(f"goto 5 174")
-            self._execute_command(f"text │  User: {user:<20} Host: {hostname:<22} │")
-            self._execute_command("goto 5 175")
-            self._execute_command("text ╰────────────────────────────────────────────────────────────╯")
-
-        # Show date/time
-        if 11.0 < segment_time < 11.5:
-            date_str = run_command("date '+%Y-%m-%d %H:%M:%S'")
-            uptime = run_command("uptime -p 2>/dev/null || echo 'uptime unavailable'")[:40]
-            self._execute_command("goto 5 178")
-            self._execute_command("text ╭─[ Time ]──────────────────────────────────────────────────╮")
-            self._execute_command(f"goto 5 179")
-            self._execute_command(f"text │  {date_str:<56} │")
-            self._execute_command(f"goto 5 180")
-            self._execute_command(f"text │  {uptime:<56} │")
-            self._execute_command("goto 5 181")
-            self._execute_command("text ╰────────────────────────────────────────────────────────────╯")
-
-        if 15.0 < segment_time < 15.5:
-            self._execute_command("goto 5 185")
-            self._execute_command("text TIP: Use :zone watch NAME W H 5s 'date' for auto-refresh!")
-
-    def _segment_live_directory(self, segment_time, dt):
-        """Show live directory listing."""
-        if segment_time < 0.5:
-            self._pan_to(0, 195, duration=1.0)
-
-            self._execute_command("goto 5 198")
-            self._execute_command("text ╔════════════════════════════════════════════════════════════╗")
-            self._execute_command("goto 5 199")
-            self._execute_command("text ║  LIVE DIRECTORY LISTING                                    ║")
-            self._execute_command("goto 5 200")
-            self._execute_command("text ╚════════════════════════════════════════════════════════════╝")
+            # Section header
+            header = get_figlet("ABOUT", "standard")
+            self._draw_multiline(5, 38, header)
 
         if 3.0 < segment_time < 3.5:
-            # Get directory listing
-            ls_output = run_command("ls -la ~/projects/active/my-grid | head -12")
-            lines = ls_output.split('\n')
+            about_text = [
+                "my-grid is a terminal-based ASCII canvas editor",
+                "",
+                "Think of it as:",
+                "  - Miro/Lucidchart for the terminal",
+                "  - Infinite whiteboard in your shell",
+                "  - Spatial memory workspace",
+            ]
+            boxed = get_boxes_multiline(about_text, "ansi-double")
+            self._draw_multiline(5, 47, boxed)
 
-            self._execute_command("goto 5 203")
-            self._execute_command("text ┌─[ ls -la ~/projects/active/my-grid ]─────────────────────┐")
+        if 8.0 < segment_time < 8.5:
+            use_cases = [
+                "USE CASES:",
+                "",
+                "  -> System architecture diagrams",
+                "  -> Sprint planning boards",
+                "  -> Mind maps and brainstorming",
+                "  -> Live dashboards",
+            ]
+            boxed = get_boxes_multiline(use_cases, "stone")
+            self._draw_multiline(5, 60, boxed)
 
-            for i, line in enumerate(lines[:10]):
-                safe_line = line[:58].replace('"', "'")
-                self._execute_command(f"goto 5 {204 + i}")
-                self._execute_command(f"text │ {safe_line:<58}│")
+        if 14.0 < segment_time < 14.5:
+            self._execute_command("goto 5 75")
+            self._execute_command("text TIP: Projects save as JSON - perfect for git!")
 
-            self._execute_command(f"goto 5 {204 + min(len(lines), 10)}")
-            self._execute_command("text └────────────────────────────────────────────────────────────┘")
-
-        if 10.0 < segment_time < 10.5:
-            # Show tree output
-            tree_output = run_command("tree -L 2 ~/projects/active/my-grid/src 2>/dev/null | head -15")
-            if "command not found" in tree_output or not tree_output:
-                tree_output = run_command("ls -R ~/projects/active/my-grid/src | head -15")
-
-            lines = tree_output.split('\n')
-
-            self._execute_command("goto 70 203")
-            self._execute_command("text ┌─[ src/ structure ]──────────────────┐")
-
-            for i, line in enumerate(lines[:12]):
-                safe_line = line[:36].replace('"', "'")
-                self._execute_command(f"goto 70 {204 + i}")
-                self._execute_command(f"text │ {safe_line:<36}│")
-
-            self._execute_command(f"goto 70 {204 + min(len(lines), 12)}")
-            self._execute_command("text └──────────────────────────────────────┘")
-
-    def _segment_grid_deep_dive(self, segment_time, dt):
-        """Deep dive into grid configuration."""
+    def _segment_typing_demo(self, segment_time, dt):
+        """Demonstrate actual typing in edit mode."""
         if segment_time < 0.5:
-            self._pan_to(0, 240, duration=1.0)
+            self._pan_to(0, 85, duration=1.0)
 
-            banner = get_figlet("GRID", "small")
-            self._draw_multiline(5, 243, banner)
+            header = get_figlet("EDIT", "standard")
+            self._draw_multiline(5, 88, header)
 
         if 2.0 < segment_time < 2.5:
-            self._execute_command("goto 5 251")
-            self._execute_command("text The grid helps you align content and navigate:")
+            explain = [
+                "EDIT MODE - Press 'i' to enter",
+                "",
+                "Type directly onto the canvas!",
+                "Watch as we type in real-time...",
+            ]
+            boxed = get_boxes_multiline(explain, "stone")
+            self._draw_multiline(5, 96, boxed)
 
-            # Show LINES mode
-            self.renderer.grid.line_mode = GridLineMode.LINES
-            self.renderer.grid.show_minor_lines = True
-            self._show_message("Grid Mode: LINES - Full box-drawing characters")
+        # Switch to edit mode and show it
+        if 5.0 < segment_time < 5.5:
+            self.state_machine.mode = Mode.EDIT
+            self._show_message("EDIT MODE - Now typing on canvas...")
+            self.typing_index = 0
+            self.typing_last_time = time.time()
 
-        if 4.0 < segment_time < 4.5:
-            self._execute_command("goto 5 254")
-            self._execute_command("text ┌─────────────────────────────────────────────────┐")
-            self._execute_command("goto 5 255")
-            self._execute_command("text │  LINES mode: ═══╬═══ Professional appearance    │")
-            self._execute_command("goto 5 256")
-            self._execute_command("text │  Toggle with: :grid lines                       │")
-            self._execute_command("goto 5 257")
-            self._execute_command("text └─────────────────────────────────────────────────┘")
+        # Simulate typing "Hello, World!"
+        if 6.0 < segment_time < 12.0:
+            text = "Hello, World! This is my-grid!"
+            self.viewport.cursor.x = 10
+            self.viewport.cursor.y = 108
+            current_time = time.time()
+            if self.typing_index < len(text):
+                if current_time - self.typing_last_time >= 0.15:
+                    char = text[self.typing_index]
+                    self.canvas.set_cell(10 + self.typing_index, 108, char)
+                    self.viewport.cursor.x = 10 + self.typing_index + 1
+                    self.typing_index += 1
+                    self.typing_last_time = current_time
+
+        # Draw a box manually character by character
+        if 14.0 < segment_time < 14.5:
+            self._execute_command("goto 10 112")
+            self._execute_command("text Now let's draw a box...")
+            self.typing_index = 0
+
+        if 16.0 < segment_time < 22.0:
+            # Draw box outline step by step
+            box_chars = "+---------+"
+            if segment_time < 17.5 and self.typing_index < len(box_chars):
+                current_time = time.time()
+                if current_time - self.typing_last_time >= 0.12:
+                    self.canvas.set_cell(10 + self.typing_index, 114, box_chars[self.typing_index])
+                    self.typing_index += 1
+                    self.typing_last_time = current_time
+            elif 17.5 < segment_time < 18.5:
+                # Draw sides
+                self.canvas.set_cell(10, 115, '|')
+                self.canvas.set_cell(20, 115, '|')
+                self.canvas.set_cell(10, 116, '|')
+                self.canvas.set_cell(20, 116, '|')
+            elif 18.5 < segment_time < 20.0:
+                # Draw bottom
+                for i, c in enumerate("+---------+"):
+                    self.canvas.set_cell(10 + i, 117, c)
+            elif 20.0 < segment_time < 22.0:
+                # Fill with text
+                for i, c in enumerate("  MY BOX  "):
+                    self.canvas.set_cell(10 + i, 115, c)
+
+        if 24.0 < segment_time < 24.5:
+            self.state_machine.mode = Mode.NAV
+            self._show_message("Press ESC to return to NAV mode")
+
+        if 27.0 < segment_time < 27.5:
+            self._execute_command("goto 10 120")
+            self._execute_command("text ESC returns you to navigation mode!")
+
+    def _segment_command_demo(self, segment_time, dt):
+        """Demonstrate command mode."""
+        if segment_time < 0.5:
+            self._pan_to(0, 130, duration=1.0)
+
+            header = get_figlet("COMMANDS", "standard")
+            self._draw_multiline(5, 133, header)
+
+        if 2.0 < segment_time < 2.5:
+            explain = [
+                "COMMAND MODE - Press ':' to enter",
+                "",
+                "Type commands like vim!",
+            ]
+            boxed = get_boxes_multiline(explain, "stone")
+            self._draw_multiline(5, 142, boxed)
+
+        # Show command examples
+        if 5.0 < segment_time < 5.5:
+            self._show_message("Typing :rect 25 5 ...")
 
         if 6.0 < segment_time < 6.5:
-            self.renderer.grid.line_mode = GridLineMode.DOTS
-            self._show_message("Grid Mode: DOTS - Subtle dotted pattern")
-
-        if 7.0 < segment_time < 7.5:
-            self._execute_command("goto 5 260")
-            self._execute_command("text ┌─────────────────────────────────────────────────┐")
-            self._execute_command("goto 5 261")
-            self._execute_command("text │  DOTS mode: · · · · Subtle and clean            │")
-            self._execute_command("goto 5 262")
-            self._execute_command("text │  Toggle with: :grid dots                        │")
-            self._execute_command("goto 5 263")
-            self._execute_command("text └─────────────────────────────────────────────────┘")
+            self._execute_command("goto 50 145")
+            self._execute_command("rect 25 5")
+            self._show_message("Drew a 25x5 rectangle!")
 
         if 9.0 < segment_time < 9.5:
-            self.renderer.grid.line_mode = GridLineMode.MARKERS
-            self._show_message("Grid Mode: MARKERS - Intersections only")
+            self._show_message("Typing :text Hello ...")
 
         if 10.0 < segment_time < 10.5:
-            self._execute_command("goto 5 266")
-            self._execute_command("text ┌─────────────────────────────────────────────────┐")
-            self._execute_command("goto 5 267")
-            self._execute_command("text │  MARKERS mode: + + + Minimal, just intersections│")
-            self._execute_command("goto 5 268")
-            self._execute_command("text │  Toggle with: :grid markers (or press 'g')      │")
-            self._execute_command("goto 5 269")
-            self._execute_command("text └─────────────────────────────────────────────────┘")
+            self._execute_command("goto 55 147")
+            self._execute_command("text Hello!")
+            self._show_message("Wrote text inside the box!")
 
-        if 12.0 < segment_time < 12.5:
-            self.renderer.grid.show_minor_lines = False
-            self.renderer.grid.line_mode = GridLineMode.LINES
+        if 13.0 < segment_time < 13.5:
+            self._show_message("Typing :goto 100 150 ...")
 
-    def _segment_grid_spacing(self, segment_time, dt):
-        """Show grid spacing options."""
+        if 14.0 < segment_time < 14.5:
+            self._execute_command("goto 100 150")
+            self._show_message("Jumped to coordinates (100, 150)!")
+
+        if 16.0 < segment_time < 16.5:
+            self._execute_command("rect 30 7")
+
+        if 17.0 < segment_time < 17.5:
+            self._execute_command("goto 105 152")
+            self._execute_command("text Command Mode")
+            self._execute_command("goto 105 154")
+            self._execute_command("text :w  = save")
+            self._execute_command("goto 105 155")
+            self._execute_command("text :q  = quit")
+
+        if 20.0 < segment_time < 20.5:
+            cmd_list = [
+                "COMMON COMMANDS:",
+                "",
+                ":rect W H   - Draw rectangle",
+                ":text MSG   - Write text",
+                ":goto X Y   - Jump to coords",
+                ":line X Y   - Draw line",
+                ":w          - Save project",
+                ":q          - Quit",
+            ]
+            boxed = get_boxes_multiline(cmd_list, "ansi-rounded")
+            self._draw_multiline(5, 160, boxed)
+
+    def _segment_live_data(self, segment_time, dt):
+        """Show live system data including top."""
         if segment_time < 0.5:
-            self._pan_to(0, 280, duration=1.0)
+            self._pan_to(0, 185, duration=1.0)
 
-            self._execute_command("goto 5 283")
-            self._execute_command("text ╔════════════════════════════════════════════════════════════╗")
-            self._execute_command("goto 5 284")
-            self._execute_command("text ║  GRID SPACING & RULERS                                     ║")
-            self._execute_command("goto 5 285")
-            self._execute_command("text ╚════════════════════════════════════════════════════════════╝")
+            header = get_figlet("LIVE DATA", "standard")
+            self._draw_multiline(5, 188, header)
 
         if 2.0 < segment_time < 2.5:
-            self._execute_command("goto 5 288")
-            self._execute_command("text Customize grid intervals for your workflow:")
-            self._execute_command("goto 5 290")
-            self._execute_command("text   :grid interval 20     = Major lines every 20 cells")
-            self._execute_command("goto 5 291")
-            self._execute_command("text   :grid interval 50 10  = Major every 50, minor every 10")
+            explain = [
+                "Zones can show LIVE system data!",
+                "PIPE zones: one-shot output",
+                "WATCH zones: auto-refresh",
+            ]
+            boxed = get_boxes_multiline(explain, "stone")
+            self._draw_multiline(5, 198, boxed)
 
-        if 4.0 < segment_time < 4.5:
-            # Change grid interval
-            self.renderer.grid.major_interval = 20
-            self.renderer.grid.minor_interval = 5
-            self._show_message("Grid interval: 20 (major) / 5 (minor)")
+        # Show pwd
+        if 5.0 < segment_time < 5.5:
+            pwd = run_command("pwd")
+            pwd_box = get_boxes(f"PWD: {pwd}", "ansi-rounded")
+            self._draw_multiline(5, 210, pwd_box)
+
+        # Show hostname/user
+        if 8.0 < segment_time < 8.5:
+            user = run_command("whoami")
+            host = run_command("hostname")
+            info_box = get_boxes(f"User: {user}  |  Host: {host}", "stone")
+            self._draw_multiline(5, 216, info_box)
+
+        # Show date/uptime
+        if 11.0 < segment_time < 11.5:
+            date_str = run_command("date '+%Y-%m-%d %H:%M:%S'")
+            uptime = run_command("uptime -p 2>/dev/null || uptime | cut -d, -f1")[:50]
+            time_box = get_boxes(f"Date: {date_str}\nUptime: {uptime}", "ansi-double")
+            self._draw_multiline(5, 222, time_box)
+
+        # Show TOP output - this is the key addition!
+        if 15.0 < segment_time < 15.5:
+            self._execute_command("goto 5 232")
+            self._execute_command("text === LIVE TOP OUTPUT ===")
+
+        if 16.0 < segment_time < 16.5:
+            # Get top output (batch mode, 1 iteration)
+            top_output = run_command("top -b -n 1 | head -12")
+            lines = top_output.split('\n')
+
+            self._execute_command("goto 5 234")
+            self._execute_command("text +--[ top -b -n 1 ]----------------------------------------+")
+
+            for i, line in enumerate(lines[:10]):
+                safe_line = line[:55].replace('"', "'").replace('`', "'")
+                self._execute_command(f"goto 5 {235 + i}")
+                self._execute_command(f"text | {safe_line:<55}|")
+
+            self._execute_command(f"goto 5 {235 + 10}")
+            self._execute_command("text +----------------------------------------------------------+")
+
+        # Refresh top (simulate watch zone)
+        if 22.0 < segment_time < 22.5:
+            self._show_message("WATCH zones auto-refresh this data!")
+            # Get fresh top output
+            top_output = run_command("top -b -n 1 | head -12")
+            lines = top_output.split('\n')
+
+            for i, line in enumerate(lines[:10]):
+                safe_line = line[:55].replace('"', "'").replace('`', "'")
+                self._execute_command(f"goto 5 {235 + i}")
+                self._execute_command(f"text | {safe_line:<55}|")
+
+        # Another refresh
+        if 28.0 < segment_time < 28.5:
+            top_output = run_command("top -b -n 1 | head -12")
+            lines = top_output.split('\n')
+
+            for i, line in enumerate(lines[:10]):
+                safe_line = line[:55].replace('"', "'").replace('`', "'")
+                self._execute_command(f"goto 5 {235 + i}")
+                self._execute_command(f"text | {safe_line:<55}|")
+
+            self._show_message("Data updates in real-time!")
+
+    def _segment_grid_config(self, segment_time, dt):
+        """Show grid configuration options."""
+        if segment_time < 0.5:
+            self._pan_to(0, 260, duration=1.0)
+
+            header = get_figlet("GRID", "standard")
+            self._draw_multiline(5, 263, header)
+
+        if 2.0 < segment_time < 2.5:
+            explain = [
+                "The grid helps alignment!",
+                "Three modes available:",
+            ]
+            boxed = get_boxes_multiline(explain, "stone")
+            self._draw_multiline(5, 272, boxed)
+
+        # LINES mode
+        if 5.0 < segment_time < 5.5:
+            self.renderer.grid.line_mode = GridLineMode.LINES
+            self.renderer.grid.show_minor_lines = True
+            self._show_message("LINES mode - Professional box-drawing")
 
         if 6.0 < segment_time < 6.5:
-            self._execute_command("goto 5 295")
-            self._execute_command("text Enable rulers to see coordinates:")
-            self._execute_command("goto 5 297")
-            self._execute_command("text   :grid rulers on   = Show edge coordinates")
-            self._execute_command("goto 5 298")
-            self._execute_command("text   :grid labels on   = Show floating labels")
+            lines_box = get_boxes("LINES: Full grid lines\n:grid lines", "ansi-double")
+            self._draw_multiline(5, 282, lines_box)
 
-        if 8.0 < segment_time < 8.5:
-            self.renderer.grid.show_rulers = True
-            self._show_message("Rulers enabled - coordinates at edges")
-
+        # DOTS mode
         if 10.0 < segment_time < 10.5:
-            self.renderer.grid.show_labels = True
-            self.renderer.grid.label_interval = 20
-            self._show_message("Labels enabled - floating coordinate markers")
+            self.renderer.grid.line_mode = GridLineMode.DOTS
+            self._show_message("DOTS mode - Subtle dotted pattern")
 
-        if 12.0 < segment_time < 12.5:
-            # Reset for cleaner view
-            self.renderer.grid.show_rulers = False
-            self.renderer.grid.show_labels = False
+        if 11.0 < segment_time < 11.5:
+            dots_box = get_boxes("DOTS: Subtle markers\n:grid dots", "stone")
+            self._draw_multiline(5, 290, dots_box)
+
+        # MARKERS mode
+        if 15.0 < segment_time < 15.5:
+            self.renderer.grid.line_mode = GridLineMode.MARKERS
+            self._show_message("MARKERS mode - Just intersections")
+
+        if 16.0 < segment_time < 16.5:
+            markers_box = get_boxes("MARKERS: Intersections only\n:grid markers  or press 'g'", "ansi-rounded")
+            self._draw_multiline(5, 298, markers_box)
+
+        # Grid spacing
+        if 20.0 < segment_time < 20.5:
+            self.renderer.grid.major_interval = 20
+            self.renderer.grid.minor_interval = 5
+            self._show_message("Grid spacing: 20 (major) / 5 (minor)")
+
+        if 22.0 < segment_time < 22.5:
+            spacing_box = get_boxes(":grid interval 20 5\nWider spacing for big diagrams!", "stone")
+            self._draw_multiline(5, 308, spacing_box)
+
+        if 26.0 < segment_time < 26.5:
             self.renderer.grid.major_interval = 10
             self.renderer.grid.minor_interval = 5
+            self.renderer.grid.line_mode = GridLineMode.LINES
+            self.renderer.grid.show_minor_lines = False
 
-    def _segment_zones_showcase(self, segment_time, dt):
-        """Showcase zone types with boxes styling."""
+    def _segment_zones_overview(self, segment_time, dt):
+        """Overview of zone types."""
         if segment_time < 0.5:
-            self._pan_to(0, 320, duration=1.0)
+            self._pan_to(0, 330, duration=1.0)
 
-            banner = get_figlet("ZONES", "small")
-            self._draw_multiline(5, 323, banner)
+            header = get_figlet("ZONES", "standard")
+            self._draw_multiline(5, 333, header)
 
         if 2.0 < segment_time < 2.5:
-            self._execute_command("goto 5 331")
-            self._execute_command("text Zones are named regions on your canvas:")
+            intro = ["Zones are named regions!", "Jump instantly between them."]
+            boxed = get_boxes_multiline(intro, "stone")
+            self._draw_multiline(5, 342, boxed)
 
-        # STATIC zone
-        if 4.0 < segment_time < 4.5:
-            self._execute_command("goto 5 335")
-            self._execute_command("text ╭─[ STATIC Zone ]───────────────────────────────────────────╮")
-            self._execute_command("goto 5 336")
-            self._execute_command("text │                                                           │")
-            self._execute_command("goto 5 337")
-            self._execute_command("text │  Basic named region - draw anything here                  │")
-            self._execute_command("goto 5 338")
-            self._execute_command("text │  :zone create NOTES 0 0 60 20                             │")
-            self._execute_command("goto 5 339")
-            self._execute_command("text │  Jump with: :zone goto NOTES                              │")
-            self._execute_command("goto 5 340")
-            self._execute_command("text │                                                           │")
-            self._execute_command("goto 5 341")
-            self._execute_command("text ╰───────────────────────────────────────────────────────────╯")
+        # STATIC
+        if 5.0 < segment_time < 5.5:
+            static_info = [
+                "STATIC Zone",
+                "",
+                "Basic named region",
+                ":zone create NOTES 0 0 60 20",
+            ]
+            boxed = get_boxes_multiline(static_info, "ansi-rounded")
+            self._draw_multiline(5, 352, boxed)
 
-        # PIPE zone
-        if 7.0 < segment_time < 7.5:
-            self._execute_command("goto 5 344")
-            self._execute_command("text ╭─[ PIPE Zone ]─────────────────────────────────────────────╮")
-            self._execute_command("goto 5 345")
-            self._execute_command("text │                                                           │")
-            self._execute_command("goto 5 346")
-            self._execute_command("text │  One-shot command output - runs once when created         │")
-            self._execute_command("goto 5 347")
-            self._execute_command("text │  :zone pipe SYSINFO 60 15 'uname -a'                      │")
-            self._execute_command("goto 5 348")
-            self._execute_command("text │  Refresh with: :zone refresh SYSINFO                      │")
-            self._execute_command("goto 5 349")
-            self._execute_command("text │                                                           │")
-            self._execute_command("goto 5 350")
-            self._execute_command("text ╰───────────────────────────────────────────────────────────╯")
-
-        # WATCH zone
+        # PIPE
         if 10.0 < segment_time < 10.5:
-            self._execute_command("goto 5 353")
-            self._execute_command("text ╭─[ WATCH Zone ]────────────────────────────────────────────╮")
-            self._execute_command("goto 5 354")
-            self._execute_command("text │                                                           │")
-            self._execute_command("goto 5 355")
-            self._execute_command("text │  Auto-refresh at intervals - like 'watch' command         │")
-            self._execute_command("goto 5 356")
-            self._execute_command("text │  :zone watch CLOCK 30 5 1s 'date'                         │")
-            self._execute_command("goto 5 357")
-            self._execute_command("text │  Great for: logs, metrics, status                         │")
-            self._execute_command("goto 5 358")
-            self._execute_command("text │                                                           │")
-            self._execute_command("goto 5 359")
-            self._execute_command("text ╰───────────────────────────────────────────────────────────╯")
+            pipe_info = [
+                "PIPE Zone",
+                "",
+                "One-shot command output",
+                ":zone pipe INFO 60 15 'uname -a'",
+            ]
+            boxed = get_boxes_multiline(pipe_info, "stone")
+            self._draw_multiline(5, 364, pipe_info)
 
-        # PTY zone
-        if 13.0 < segment_time < 13.5:
-            self._execute_command("goto 5 362")
-            self._execute_command("text ╭─[ PTY Zone ]──────────────────────────────────────────────╮")
-            self._execute_command("goto 5 363")
-            self._execute_command("text │                                                           │")
-            self._execute_command("goto 5 364")
-            self._execute_command("text │  Live terminal embedded in your canvas! (Unix only)       │")
-            self._execute_command("goto 5 365")
-            self._execute_command("text │  :zone pty SHELL 80 24                                    │")
-            self._execute_command("goto 5 366")
-            self._execute_command("text │  Enter to focus, type commands, Esc to unfocus            │")
-            self._execute_command("goto 5 367")
-            self._execute_command("text │                                                           │")
-            self._execute_command("goto 5 368")
-            self._execute_command("text ╰───────────────────────────────────────────────────────────╯")
+        # WATCH
+        if 15.0 < segment_time < 15.5:
+            watch_info = [
+                "WATCH Zone",
+                "",
+                "Auto-refresh at intervals",
+                ":zone watch TIME 30 5 1s 'date'",
+            ]
+            boxed = get_boxes_multiline(watch_info, "ansi-double")
+            self._draw_multiline(5, 376, boxed)
+
+        # PTY
+        if 20.0 < segment_time < 20.5:
+            pty_info = [
+                "PTY Zone (Unix)",
+                "",
+                "Live embedded terminal!",
+                ":zone pty SHELL 80 24",
+                "Enter to focus, Esc to unfocus",
+            ]
+            boxed = get_boxes_multiline(pty_info, "ansi-rounded")
+            self._draw_multiline(5, 388, boxed)
 
         # FIFO/Socket
-        if 17.0 < segment_time < 17.5:
-            self._execute_command("goto 5 371")
-            self._execute_command("text ╭─[ FIFO & Socket Zones ]──────────────────────────────────╮")
-            self._execute_command("goto 5 372")
-            self._execute_command("text │                                                           │")
-            self._execute_command("goto 5 373")
-            self._execute_command("text │  External integration - receive data from other tools     │")
-            self._execute_command("goto 5 374")
-            self._execute_command("text │  :zone fifo EXTERNAL 60 20 /tmp/mygrid.fifo               │")
-            self._execute_command("goto 5 375")
-            self._execute_command("text │  :zone socket CLAUDE 60 20 9999                           │")
-            self._execute_command("goto 5 376")
-            self._execute_command("text │  Perfect for: Claude Code output, log streams             │")
-            self._execute_command("goto 5 377")
-            self._execute_command("text │                                                           │")
-            self._execute_command("goto 5 378")
-            self._execute_command("text ╰───────────────────────────────────────────────────────────╯")
+        if 28.0 < segment_time < 28.5:
+            external_info = [
+                "FIFO & Socket Zones",
+                "",
+                "External tool integration!",
+                ":zone fifo EXT 60 20 /tmp/pipe",
+                ":zone socket API 60 20 9999",
+            ]
+            boxed = get_boxes_multiline(external_info, "stone")
+            self._draw_multiline(5, 402, boxed)
 
-        if 21.0 < segment_time < 21.5:
-            self._execute_command("goto 5 382")
-            self._execute_command("text TIP: Link zones to bookmarks with :zone link NAME KEY")
-
-    def _segment_grand_finale(self, segment_time, dt):
-        """Grand finale with summary."""
-        if segment_time < 0.5:
-            self._pan_to(0, 400, duration=1.5)
-
-            # Big finale banner
-            banner = get_figlet("FIN", "slant")
-            self._draw_multiline(20, 403, banner)
-
-        if 3.0 < segment_time < 3.5:
-            self._execute_command("goto 5 415")
-            self._execute_command("text ╔════════════════════════════════════════════════════════════════╗")
-            self._execute_command("goto 5 416")
-            self._execute_command("text ║                         QUICK REFERENCE                        ║")
-            self._execute_command("goto 5 417")
-            self._execute_command("text ╠════════════════════════════════════════════════════════════════╣")
+        if 35.0 < segment_time < 35.5:
             self._execute_command("goto 5 418")
-            self._execute_command("text ║  wasd      Move cursor          :rect W H    Draw box          ║")
-            self._execute_command("goto 5 419")
-            self._execute_command("text ║  i         Edit mode            :text MSG    Write text        ║")
-            self._execute_command("goto 5 420")
-            self._execute_command("text ║  p         Pan mode             :goto X Y    Jump to coords    ║")
-            self._execute_command("goto 5 421")
-            self._execute_command("text ║  :         Command mode         :zone ...    Zone commands     ║")
-            self._execute_command("goto 5 422")
-            self._execute_command("text ║  m + key   Set bookmark         :w / :q      Save / Quit       ║")
-            self._execute_command("goto 5 423")
-            self._execute_command("text ║  ' + key   Jump to bookmark     F1           Help screen       ║")
-            self._execute_command("goto 5 424")
-            self._execute_command("text ╚════════════════════════════════════════════════════════════════╝")
+            self._execute_command("text Link zones to bookmarks: :zone link NOTES n")
+
+    def _segment_navigation_showcase(self, segment_time, dt):
+        """Show off navigation with actual movement."""
+        if segment_time < 0.5:
+            self._pan_to(0, 0, duration=2.0)
+            self._show_message("Let's navigate the canvas we've created!")
+
+        # Jump around the canvas
+        if 4.0 < segment_time < 4.5:
+            self._show_message("Jumping to title area...")
+            self._pan_to(0, 0, duration=1.5)
 
         if 7.0 < segment_time < 7.5:
-            self._execute_command("goto 5 428")
-            self._execute_command("text ┌────────────────────────────────────────────────────────────────┐")
-            self._execute_command("goto 5 429")
-            self._execute_command("text │  github.com/jcaldwell-labs/my-grid                             │")
-            self._execute_command("goto 5 430")
-            self._execute_command("text │                                                                │")
-            self._execute_command("goto 5 431")
-            self._execute_command("text │  Inspired by Jef Raskin's 'The Humane Interface'               │")
-            self._execute_command("goto 5 432")
-            self._execute_command("text │  Spatial memory > hierarchical navigation                      │")
-            self._execute_command("goto 5 433")
-            self._execute_command("text └────────────────────────────────────────────────────────────────┘")
+            self._show_message("Jumping to typing demo...")
+            self._pan_to(0, 85, duration=1.5)
 
         if 10.0 < segment_time < 10.5:
-            self._show_message("Thanks for watching! Try my-grid today!")
+            self._show_message("Jumping to live data...")
+            self._pan_to(0, 185, duration=1.5)
+
+        if 13.0 < segment_time < 13.5:
+            self._show_message("Jumping to zones...")
+            self._pan_to(0, 330, duration=1.5)
+
+        if 16.0 < segment_time < 16.5:
+            self._show_message("Back to grid config...")
+            self._pan_to(0, 260, duration=1.5)
+
+        if 19.0 < segment_time < 19.5:
+            self._show_message("This is SPATIAL NAVIGATION!")
+            self._pan_to(0, 0, duration=2.0)
+
+        # Show bookmark setting
+        if 23.0 < segment_time < 23.5:
+            self._execute_command("goto 80 5")
+            self._execute_command("text Press 'm' then 'a' to set bookmark 'a'")
+            self._execute_command("goto 80 7")
+            self._execute_command("text Press apostrophe then 'a' to jump back!")
+
+        if 27.0 < segment_time < 27.5:
+            nav_box = get_boxes("Spatial memory > hierarchical navigation!\nRemember WHERE things are, not HOW to find them.", "ansi-double")
+            self._draw_multiline(80, 10, nav_box)
+
+    def _segment_finale(self, segment_time, dt):
+        """Grand finale."""
+        if segment_time < 0.5:
+            self._pan_to(0, 430, duration=1.0)
+
+            header = get_figlet("THE END", "standard")
+            self._draw_multiline(20, 433, header)
+
+        if 2.0 < segment_time < 2.5:
+            final_box = get_boxes_multiline([
+                "github.com/jcaldwell-labs/my-grid",
+                "",
+                "Inspired by Jef Raskin's",
+                "'The Humane Interface'",
+                "",
+                "Thanks for watching!",
+            ], "ansi-double")
+            self._draw_multiline(15, 445, final_box)
+
+        if 6.0 < segment_time < 6.5:
+            self._show_message("Try my-grid today! Press F1 for help.")
 
     # ========== MAIN DEMO LOOP ==========
 
-    def run_demo(self, total_duration=180):
+    def run_demo(self, total_duration=240):
         """
         Run showcase demo with visual curses UI.
 
@@ -738,13 +734,13 @@ class ShowcaseDemo(Application):
                 time.sleep(FRAME_DELAY)
 
         finally:
-            self._show_message("Demo complete! Explore my-grid at github.com/jcaldwell-labs/my-grid")
+            self._show_message("Demo complete!")
             status = self._get_status_line()
             self.renderer.render(self.canvas, self.viewport, status)
             time.sleep(3)
 
 
-def run_demo(duration=180):
+def run_demo(duration=240):
     """Entry point for demo mode."""
     def _curses_main(stdscr):
         demo = ShowcaseDemo(stdscr)
@@ -754,14 +750,17 @@ def run_demo(duration=180):
 
 
 if __name__ == "__main__":
-    duration = int(sys.argv[1]) if len(sys.argv) > 1 else 180
-    print(f"Running showcase demo for {duration} seconds...")
+    duration = int(sys.argv[1]) if len(sys.argv) > 1 else 240
+    print(f"Running showcase demo for {duration} seconds (4 minutes)...")
     print("")
     print("This demo includes:")
-    print("  - Figlet banners")
-    print("  - Live system data (pwd, ls, tree, hostname)")
-    print("  - Grid configuration walkthrough")
-    print("  - Zone types explained")
-    print("  - External tool integration")
+    print("  - Readable figlet banners (standard font)")
+    print("  - Real boxes tool borders")
+    print("  - Live typing demonstration")
+    print("  - Command mode demo")
+    print("  - Live system data with TOP output")
+    print("  - Grid configuration")
+    print("  - Zone types overview")
+    print("  - Navigation showcase")
     print("")
     run_demo(duration)
