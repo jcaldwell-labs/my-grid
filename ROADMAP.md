@@ -89,8 +89,8 @@ Inspired by Jef Raskin's "The Humane Interface" - spatial navigation over window
 ### Phase 3: Buffer & History Management
 **Goal: Better handling of long-running zones**
 
-- [ ] Zone buffer viewer (`:zone buffer NAME`)
-- [ ] Search within zone buffers
+- [x] Zone buffer viewer (`:zone buffer NAME`)
+- [x] Search within zone buffers
 - [ ] Export zone buffer to file
 - [ ] Configurable buffer sizes per zone
 - [ ] Buffer compression for old content
@@ -281,9 +281,10 @@ Inspired by Jef Raskin's "The Humane Interface" - spatial navigation over window
 1. ~~**Fix layout loading** - Auto-start FIFO/Socket zones~~ ✅
 2. ~~**Add `--layout` CLI flag** - Load layout on startup~~ ✅
 3. ~~**Create layout templates** - 5-10 ready-to-use layouts~~ ✅ (9 templates)
-4. **Buffer viewer** - `:zone buffer NAME` command
+4. ~~**Buffer viewer** - `:zone buffer NAME` command~~ ✅
 5. **Test coverage** - Add unit tests for zone handlers
 6. **Layout validation** - Error reporting for invalid layouts
+7. **Buffer export** - Export zone buffer to file
 
 ---
 
