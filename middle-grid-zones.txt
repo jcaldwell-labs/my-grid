@@ -1,0 +1,65 @@
+# MIDDLE GRID Zone Setup Commands
+# Copy/paste these into my-grid (in COMMAND mode)
+
+# === Title ===
+:goto 20 2
+:figlet -f banner MIDDLE GRID
+:goto 20 9
+:text === A Project Management Realm ===
+
+# === THE SHIRE (Household Management) ===
+:goto 0 15
+:text === THE SHIRE ===
+:goto 0 16
+:text Household Items
+:zone fifo HOUSEHOLD 40 12 /tmp/household.fifo
+
+# === RIVENDELL (Sheet Music Library) ===
+:goto 100 15
+:text === RIVENDELL ===
+:goto 100 16
+:text Music Catalog
+:zone fifo MUSIC 45 12 /tmp/music.fifo
+
+# === THE CROSSROADS (Communication Hub) ===
+:goto 45 35
+:text === THE CROSSROADS ===
+:goto 45 36
+:text [Claude speaks here]
+:zone fifo CLAUDE_SAYS 50 10 /tmp/claude-says.fifo
+:goto 45 48
+:text [You speak here]
+:zone fifo YOU_SAY 50 10 /tmp/you-say.fifo
+
+# === GONDOR (Development) ===
+:goto 0 62
+:text === GONDOR ===
+:goto 0 63
+:text Dev Progress
+:zone fifo DEV_LOG 40 12 /tmp/dev-progress.fifo
+
+# === PATHS OF THE DEAD (my-context) ===
+:goto 100 62
+:text === PATHS OF THE DEAD ===
+:goto 100 63
+:text Context Tracking
+:zone pipe MY_CONTEXT 45 12 my-context list | tail -10
+
+# === MOUNT DOOM (Issues) ===
+:goto 45 80
+:text === MOUNT DOOM ===
+:goto 45 81
+:text GitHub Issues
+:zone watch ISSUES 60 10 10s gh issue list --repo jcaldwell-labs/my-grid --limit 5
+
+# === Navigation Bookmarks ===
+:mark s 0 15
+:mark r 100 15
+:mark c 45 35
+:mark g 0 62
+:mark p 100 62
+:mark m 45 80
+
+# Done! Use ' + letter to jump to regions:
+# 's = Shire, 'r = Rivendell, 'c = Crossroads
+# 'g = Gondor, 'p = Paths, 'm = Mount Doom
