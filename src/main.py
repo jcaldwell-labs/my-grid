@@ -380,7 +380,7 @@ class Application:
                     continue
 
                 if result.message:
-                    self._show_message(result.message)
+                    self._show_message(result.message, frames=result.message_frames)
 
                 if result.command:
                     self._handle_command(result.command)
@@ -1744,7 +1744,7 @@ class Application:
             for i, sess in enumerate(sessions[:10]):
                 ts = sess["timestamp"][:16] if sess["timestamp"] != "Unknown" else "Unknown"
                 parts.append(f"{i}: {ts}")
-            return ModeResult(message=f"Sessions: {', '.join(parts)}")
+            return ModeResult(message=f"Sessions: {', '.join(parts)}", message_frames=120)
 
         # :session restore [N]
         elif subcmd == "restore":
