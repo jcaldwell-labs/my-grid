@@ -766,7 +766,8 @@ class Application:
   LAYOUTS:
     :layout list              - List saved layouts
     :layout save NAME [DESC]  - Save current zones as layout
-    :layout load NAME         - Load a layout
+    :layout load NAME         - Load a layout (adds to existing)
+    :layout reload NAME       - Reload layout (clears existing)
     :layout delete NAME       - Delete a layout
 
   CLIPBOARD:
@@ -1667,7 +1668,9 @@ class Application:
 
         Usage:
             :layout list              - List available layouts
-            :layout load NAME         - Load a layout
+            :layout load NAME         - Load a layout (adds to existing)
+            :layout load NAME --clear - Load layout, clearing existing zones
+            :layout reload NAME       - Reload layout (stops handlers, clears zones)
             :layout save NAME [DESC]  - Save current zones as layout
             :layout delete NAME       - Delete a layout
             :layout info NAME         - Show layout details
@@ -1702,6 +1705,15 @@ class Application:
             if not layout:
                 return ModeResult(message=f"Layout '{name}' not found")
 
+            # Stop all existing handlers and clear zones before loading
+            if clear_existing:
+                self.zone_executor.stop_all()
+                self.pty_handler.stop_all()
+                self.fifo_handler.stop_all()
+                self.socket_handler.stop_all()
+                # Clear zones AND their canvas regions
+                self.zone_manager.clear_with_canvas(self.canvas)
+
             created, errors = self.layout_manager.apply_layout(
                 layout,
                 self.zone_manager,
@@ -1709,7 +1721,7 @@ class Application:
                 pty_handler=self.pty_handler,
                 fifo_handler=self.fifo_handler,
                 socket_handler=self.socket_handler,
-                clear_existing=clear_existing,
+                clear_existing=False,  # Already cleared above
             )
 
             # Apply cursor/viewport if specified
@@ -1724,6 +1736,13 @@ class Application:
             if errors:
                 msg += f" ({len(errors)} errors)"
             return ModeResult(message=msg)
+
+        # :layout reload NAME - Shortcut for load --clear
+        elif subcmd == "reload":
+            if len(args) < 2:
+                return ModeResult(message="Usage: layout reload NAME")
+            # Re-invoke with --clear flag
+            return self._cmd_layout(["load", args[1], "--clear"])
 
         # :layout save NAME [DESCRIPTION]
         elif subcmd == "save":

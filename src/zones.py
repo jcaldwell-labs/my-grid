@@ -244,6 +244,12 @@ class Zone:
             canvas.set(x + i, y + h - 1, horiz)
         canvas.set(x + w - 1, y + h - 1, br)
 
+    def clear_from_canvas(self, canvas) -> None:
+        """Clear this zone's region from the canvas."""
+        for row in range(self.height):
+            for col in range(self.width):
+                canvas.clear(self.x + col, self.y + row)
+
     def contains(self, cx: int, cy: int) -> bool:
         """Check if a canvas coordinate is within this zone."""
         return (self.x <= cx < self.x + self.width and
@@ -611,6 +617,12 @@ class ZoneManager:
 
     def clear(self) -> None:
         """Remove all zones."""
+        self._zones.clear()
+
+    def clear_with_canvas(self, canvas) -> None:
+        """Remove all zones and clear their canvas regions."""
+        for zone in self._zones.values():
+            zone.clear_from_canvas(canvas)
         self._zones.clear()
 
     def __len__(self) -> int:
