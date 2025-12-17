@@ -900,17 +900,20 @@ class ZoneExecutor:
 
 import os
 import sys
-import select
 import signal
-import fcntl
 import struct
-import termios
 
-# Only import pty on Unix-like systems
+# Only import Unix-specific modules on Unix-like systems
 try:
+    import fcntl
+    import termios
+    import select
     import pty
     PTY_AVAILABLE = True
 except ImportError:
+    fcntl = None
+    termios = None
+    select = None
     PTY_AVAILABLE = False
 
 
