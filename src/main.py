@@ -196,6 +196,9 @@ class Application:
             clear_existing=False,
         )
 
+        # Register zone bookmarks
+        self._register_zone_bookmarks()
+
         # Apply cursor/viewport if specified
         if layout.cursor_x is not None:
             self.viewport.cursor.set(layout.cursor_x, layout.cursor_y or 0)
@@ -206,6 +209,15 @@ class Application:
         if errors:
             msg += f" ({len(errors)} errors)"
         self._show_message(msg, frames=60)  # Show longer on startup
+
+    def _register_zone_bookmarks(self) -> None:
+        """Register bookmarks for all zones that have them."""
+        for zone in self.zone_manager.list_all():
+            if zone.bookmark:
+                # Calculate zone center point
+                center_x = zone.x + (zone.width // 2)
+                center_y = zone.y + (zone.height // 2)
+                self.state_machine.bookmarks.set(zone.bookmark, center_x, center_y, zone.name)
 
     def _show_message(self, message: str, frames: int = 2) -> None:
         """Show a temporary status message."""
@@ -686,7 +698,9 @@ class Application:
             except Exception as e:
                 self._show_message(f"Save error: {e}")
         else:
-            self._do_save_as()
+            # Don't use blocking prompt - especially problematic in server mode
+            suggested = suggest_filename(self.canvas)
+            self._show_message(f"Use :w {suggested} or :w <filename> to save", frames=180)
 
     def _do_save_as(self) -> None:
         """Save with a new filename."""
@@ -2078,6 +2092,9 @@ class Application:
                 socket_handler=self.socket_handler,
                 clear_existing=False,  # Already cleared above
             )
+
+            # Register zone bookmarks
+            self._register_zone_bookmarks()
 
             # Apply cursor/viewport if specified
             if layout.cursor_x is not None:

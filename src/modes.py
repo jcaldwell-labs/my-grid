@@ -277,6 +277,9 @@ class ModeStateMachine:
         self.draw_fg: int = -1  # Foreground color (-1 = default)
         self.draw_bg: int = -1  # Background color (-1 = default)
 
+        # Track edit mode starting column for Enter key behavior
+        self._edit_start_x: int | None = None
+
         # Command handlers: command_name -> callable
         self._command_handlers: dict[str, Callable[[list[str]], ModeResult]] = {}
         self._register_default_commands()
@@ -295,6 +298,10 @@ class ModeStateMachine:
         """Set the current mode."""
         self._previous_mode = self._mode
         self._mode = mode
+
+        # Capture starting X position when entering edit mode
+        if mode == Mode.EDIT:
+            self._edit_start_x = self.viewport.cursor.x
 
         # Clear command buffer when leaving command mode
         if self._previous_mode == Mode.COMMAND and mode != Mode.COMMAND:
@@ -519,11 +526,15 @@ class ModeStateMachine:
             self.canvas.clear(self.viewport.cursor.x, self.viewport.cursor.y)
             return ModeResult()
 
-        # Newline - move to next line, reset X to origin or 0
+        # Newline - move to next line, reset X to where edit started
         if action == Action.NEWLINE:
             self.viewport.cursor.y += 1
-            # Reset X to origin X (start of line behavior)
-            self.viewport.cursor.x = self.viewport.origin.x
+            # Reset X to where we entered edit mode (column-aligned editing)
+            if self._edit_start_x is not None:
+                self.viewport.cursor.x = self._edit_start_x
+            else:
+                # Fallback to origin X if edit_start_x not set
+                self.viewport.cursor.x = self.viewport.origin.x
             self.viewport.ensure_cursor_visible(margin=cfg.scroll_margin)
             return ModeResult()
 
@@ -577,18 +588,52 @@ class ModeStateMachine:
 
         return ModeResult(handled=False)
 
+    def _extract_bookmark_char(self, event: "InputEvent") -> str | None:
+        """
+        Extract a bookmark character (a-z, 0-9) from an input event.
+
+        Works even if the key has a binding that prevents char from being set.
+        """
+        # Try event.char first (for unbound keys)
+        if event.char and len(event.char) == 1 and event.char.isalnum():
+            return event.char.lower()
+
+        # Fall back to raw_key for bound keys (like 'a' and '0')
+        if event.raw_key:
+            from pygame.locals import (
+                K_a, K_b, K_c, K_d, K_e, K_f, K_g, K_h, K_i, K_j, K_k, K_l, K_m,
+                K_n, K_o, K_p, K_q, K_r, K_s, K_t, K_u, K_v, K_w, K_x, K_y, K_z,
+                K_0, K_1, K_2, K_3, K_4, K_5, K_6, K_7, K_8, K_9
+            )
+
+            # Map key codes to characters
+            key_map = {
+                K_a: 'a', K_b: 'b', K_c: 'c', K_d: 'd', K_e: 'e', K_f: 'f',
+                K_g: 'g', K_h: 'h', K_i: 'i', K_j: 'j', K_k: 'k', K_l: 'l',
+                K_m: 'm', K_n: 'n', K_o: 'o', K_p: 'p', K_q: 'q', K_r: 'r',
+                K_s: 's', K_t: 't', K_u: 'u', K_v: 'v', K_w: 'w', K_x: 'x',
+                K_y: 'y', K_z: 'z',
+                K_0: '0', K_1: '1', K_2: '2', K_3: '3', K_4: '4',
+                K_5: '5', K_6: '6', K_7: '7', K_8: '8', K_9: '9',
+            }
+
+            return key_map.get(event.raw_key)
+
+        return None
+
     def _process_mark_set(self, event: "InputEvent") -> ModeResult:
         """Process input in MARK_SET mode - waiting for bookmark key."""
-        # Any alphanumeric character sets a bookmark
-        if event.char and len(event.char) == 1 and event.char.isalnum():
-            key = event.char.lower()
+        # Extract character from event.char or raw_key
+        key_char = self._extract_bookmark_char(event)
+
+        if key_char:
             x, y = self.viewport.cursor.x, self.viewport.cursor.y
-            self.bookmarks.set(key, x, y)
+            self.bookmarks.set(key_char, x, y)
             self.set_mode(Mode.NAV)
             return ModeResult(
                 mode_changed=True,
                 new_mode=Mode.NAV,
-                message=f"Mark '{key}' set at ({x}, {y})"
+                message=f"Mark '{key_char}' set at ({x}, {y})"
             )
 
         # Any other key cancels
@@ -597,10 +642,11 @@ class ModeStateMachine:
 
     def _process_mark_jump(self, event: "InputEvent") -> ModeResult:
         """Process input in MARK_JUMP mode - waiting for bookmark key."""
-        # Any alphanumeric character jumps to bookmark
-        if event.char and len(event.char) == 1 and event.char.isalnum():
-            key = event.char.lower()
-            bookmark = self.bookmarks.get(key)
+        # Extract character from event.char or raw_key
+        key_char = self._extract_bookmark_char(event)
+
+        if key_char:
+            bookmark = self.bookmarks.get(key_char)
             if bookmark:
                 self.viewport.cursor.set(bookmark.x, bookmark.y)
                 self.viewport.ensure_cursor_visible(margin=self.config.scroll_margin)
@@ -608,14 +654,14 @@ class ModeStateMachine:
                 return ModeResult(
                     mode_changed=True,
                     new_mode=Mode.NAV,
-                    message=f"Jumped to mark '{key}' ({bookmark.x}, {bookmark.y})"
+                    message=f"Jumped to mark '{key_char}' ({bookmark.x}, {bookmark.y})"
                 )
             else:
                 self.set_mode(Mode.NAV)
                 return ModeResult(
                     mode_changed=True,
                     new_mode=Mode.NAV,
-                    message=f"Mark '{key}' not set"
+                    message=f"Mark '{key_char}' not set"
                 )
 
         # Any other key cancels
