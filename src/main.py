@@ -108,6 +108,8 @@ class Application:
     def _register_commands(self) -> None:
         """Register application-level commands."""
         self.state_machine.register_command("save", self._cmd_save)
+        self.state_machine.register_command("w", self._cmd_write)  # vim-style :w [filename]
+        self.state_machine.register_command("write", self._cmd_write)
         self.state_machine.register_command("saveas", self._cmd_save_as)
         self.state_machine.register_command("open", self._cmd_open)
         self.state_machine.register_command("new", self._cmd_new)
@@ -984,6 +986,30 @@ class Application:
     # Command handlers
     def _cmd_save(self, args: list[str]) -> ModeResult:
         self._do_save()
+        return ModeResult()
+
+    def _cmd_write(self, args: list[str]) -> ModeResult:
+        """Handle :w [filename] - vim-style write command."""
+        if args:
+            # :w filename - save to specified file
+            filename = args[0]
+            if not filename.endswith('.json'):
+                filename += '.json'
+            try:
+                self.project.save(
+                    self.canvas, self.viewport,
+                    grid_settings=self.renderer.grid,
+                    bookmarks=self.state_machine.bookmarks,
+                    zones=self.zone_manager,
+                    filepath=Path(filename)
+                )
+                add_recent_project(Path(filename))
+                self._show_message(f"Saved: {filename}")
+            except Exception as e:
+                return ModeResult(message=f"Save error: {e}")
+        else:
+            # :w - save to current file or prompt
+            self._do_save()
         return ModeResult()
 
     def _cmd_save_as(self, args: list[str]) -> ModeResult:
