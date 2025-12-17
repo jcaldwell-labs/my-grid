@@ -12,7 +12,7 @@ import logging
 import sys
 from pathlib import Path
 
-from canvas import Canvas, parse_color, COLOR_NAMES
+from canvas import Canvas, parse_color, COLOR_NUMBERS
 from viewport import Viewport
 from renderer import Renderer, GridSettings, GridLineMode, create_status_line
 from input import InputHandler, Action, InputEvent
@@ -772,7 +772,7 @@ class Application:
   DRAWING:
     :rect W H [c] - Draw rectangle         :line X Y  - Draw line to X,Y
     :text MSG     - Write text             :box STYLE TEXT - ASCII box
-    :figlet TEXT  - ASCII art text         :fill W H C - Fill region
+    :figlet TEXT  - ASCII art text         :fill [X Y] W H C - Fill region
 
 {joy_status}  [n/Space] Next page | [p] Prev | [q/Esc] Close"""
 
@@ -1124,10 +1124,12 @@ class Application:
             # Use only the first character
             char = char[0] if char else ' '
 
-            # Fill the region
+            # Fill the region with current drawing colors
+            fg = self.state_machine.draw_fg
+            bg = self.state_machine.draw_bg
             for cy in range(y, y + h):
                 for cx in range(x, x + w):
-                    self.canvas.set(cx, cy, char)
+                    self.canvas.set(cx, cy, char, fg=fg, bg=bg)
 
             self.project.mark_dirty()
             return ModeResult(message=f"Filled {w}x{h} region with '{char}'")
@@ -1149,8 +1151,6 @@ class Application:
         Colors: black, red, green, yellow, blue, magenta, cyan, white, default
         Or use numbers 0-7 (or 0-255 on supported terminals)
         """
-        from canvas import COLOR_NUMBERS
-
         if not args:
             # Show current drawing color
             fg = self.state_machine.draw_fg

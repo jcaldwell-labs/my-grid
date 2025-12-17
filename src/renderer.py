@@ -93,7 +93,8 @@ class Renderer:
         self._next_color_pair = 11  # Start after reserved pairs
 
         # Setup colors if available
-        if curses.has_colors():
+        self._colors_supported = curses.has_colors()
+        if self._colors_supported:
             curses.start_color()
             curses.use_default_colors()
 
@@ -105,12 +106,32 @@ class Renderer:
             curses.init_pair(5, curses.COLOR_GREEN, -1)                   # Status line
             curses.init_pair(6, curses.COLOR_BLACK, curses.COLOR_CYAN)    # Visual selection
 
+    def _use_color_pair(self, pair_num: int) -> int:
+        """
+        Get color pair attribute if colors are supported, otherwise returns A_NORMAL.
+
+        For reserved pairs (1-6), falls back to appropriate attribute on no-color terminals.
+        """
+        if not self._colors_supported:
+            # Fallback for no-color terminals
+            if pair_num == 1:  # Cursor
+                return curses.A_REVERSE
+            elif pair_num == 6:  # Visual selection
+                return curses.A_REVERSE
+            else:
+                return curses.A_NORMAL
+        return curses.color_pair(pair_num)
+
     def _get_color_pair(self, fg: int, bg: int) -> int:
         """
         Get or create a color pair for the given foreground and background.
 
-        Returns the curses color pair number.
+        Returns the curses color pair number (0 if colors not supported).
         """
+        # Return default if colors not supported
+        if not self._colors_supported:
+            return 0
+
         # Default colors don't need a special pair
         if fg == -1 and bg == -1:
             return 0
@@ -219,12 +240,12 @@ class Renderer:
         if is_cursor:
             if self.style.cursor_char:
                 char = self.style.cursor_char
-            attr = curses.color_pair(1) | curses.A_BOLD
+            attr = self._use_color_pair(1) | curses.A_BOLD
             return char if char != ' ' else self.style.empty_char, attr
 
         # Check if within visual selection (but not cursor - handled above)
         if selection is not None and selection.contains(cx, cy):
-            attr = curses.color_pair(6)  # Visual selection color
+            attr = self._use_color_pair(6)  # Visual selection color
             if char == ' ':
                 char = self.style.empty_char
             return char, attr
@@ -234,7 +255,7 @@ class Renderer:
             if cx == viewport.origin.x and cy == viewport.origin.y:
                 if char == ' ':
                     char = self.grid.origin_char
-                attr = curses.color_pair(2) | curses.A_BOLD
+                attr = self._use_color_pair(2) | curses.A_BOLD
                 return char, attr
 
         # Check for cell colors
@@ -301,36 +322,36 @@ class Renderer:
         # MARKERS mode - original behavior
         if self.grid.line_mode == GridLineMode.MARKERS:
             if self.grid.show_major_lines and is_major_intersection:
-                return self.grid.major_char, curses.color_pair(3) | curses.A_DIM
+                return self.grid.major_char, self._use_color_pair(3) | curses.A_DIM
             if self.grid.show_minor_lines and is_minor_intersection:
                 if not (is_major_intersection and self.grid.show_major_lines):
-                    return self.grid.minor_char, curses.color_pair(4) | curses.A_DIM
+                    return self.grid.minor_char, self._use_color_pair(4) | curses.A_DIM
             return None, 0
 
         # LINES mode - full grid lines with box-drawing characters
         if self.grid.line_mode == GridLineMode.LINES:
             # Major intersections
             if self.grid.show_major_lines and is_major_intersection:
-                return self.grid.line_major_cross, curses.color_pair(3)
+                return self.grid.line_major_cross, self._use_color_pair(3)
 
             # Major lines (not at intersection)
             if self.grid.show_major_lines:
                 if is_on_major_h and not is_on_major_v:
-                    return self.grid.line_major_h, curses.color_pair(3) | curses.A_DIM
+                    return self.grid.line_major_h, self._use_color_pair(3) | curses.A_DIM
                 if is_on_major_v and not is_on_major_h:
-                    return self.grid.line_major_v, curses.color_pair(3) | curses.A_DIM
+                    return self.grid.line_major_v, self._use_color_pair(3) | curses.A_DIM
 
             # Minor intersections
             if self.grid.show_minor_lines and is_minor_intersection:
                 if not (is_major_intersection and self.grid.show_major_lines):
-                    return self.grid.line_cross_char, curses.color_pair(4) | curses.A_DIM
+                    return self.grid.line_cross_char, self._use_color_pair(4) | curses.A_DIM
 
             # Minor lines (not at intersection)
             if self.grid.show_minor_lines:
                 if is_on_minor_h and not (is_on_major_h and self.grid.show_major_lines):
-                    return self.grid.line_h_char, curses.color_pair(4) | curses.A_DIM
+                    return self.grid.line_h_char, self._use_color_pair(4) | curses.A_DIM
                 if is_on_minor_v and not (is_on_major_v and self.grid.show_major_lines):
-                    return self.grid.line_v_char, curses.color_pair(4) | curses.A_DIM
+                    return self.grid.line_v_char, self._use_color_pair(4) | curses.A_DIM
 
             return None, 0
 
@@ -338,11 +359,11 @@ class Renderer:
         if self.grid.line_mode == GridLineMode.DOTS:
             if self.grid.show_major_lines:
                 if is_on_major_h or is_on_major_v:
-                    return '•', curses.color_pair(3) | curses.A_DIM
+                    return '•', self._use_color_pair(3) | curses.A_DIM
             if self.grid.show_minor_lines:
                 if is_on_minor_h or is_on_minor_v:
                     if not ((is_on_major_h or is_on_major_v) and self.grid.show_major_lines):
-                        return '·', curses.color_pair(4) | curses.A_DIM
+                        return '·', self._use_color_pair(4) | curses.A_DIM
             return None, 0
 
         return None, 0
@@ -365,7 +386,7 @@ class Renderer:
             offset_x: X offset for canvas content
             offset_y: Y offset for canvas content
         """
-        ruler_attr = curses.color_pair(4) | curses.A_DIM
+        ruler_attr = self._use_color_pair(4) | curses.A_DIM
 
         # X-axis ruler (top row)
         for sx in range(width - offset_x):
@@ -421,7 +442,7 @@ class Renderer:
         These appear as floating labels within the canvas area,
         showing coordinates at label_interval spacing.
         """
-        label_attr = curses.color_pair(4) | curses.A_DIM
+        label_attr = self._use_color_pair(4) | curses.A_DIM
         interval = self.grid.label_interval
 
         # Calculate visible canvas range
@@ -476,7 +497,7 @@ class Renderer:
         text = text.ljust(width - 1)
 
         try:
-            self.stdscr.addstr(y, 0, text, curses.color_pair(5))
+            self.stdscr.addstr(y, 0, text, self._use_color_pair(5))
         except curses.error:
             pass
 

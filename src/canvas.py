@@ -125,6 +125,8 @@ class Canvas:
         Set color for cell at position without changing character.
 
         If cell doesn't exist and colors are non-default, creates cell with space.
+        If both fg and bg are -1 (default) and cell doesn't exist, this is a no-op.
+        If cell exists and both colors are -1, resets to default colors (may delete if space).
         """
         cell = self.get(x, y)
         if fg != -1 or bg != -1:
