@@ -13,6 +13,7 @@ Zone types enable dynamic content:
 - FIFO: Named pipe listener
 - SOCKET: Network port listener
 - CLIPBOARD: Yank/paste buffer
+- PAGER: Paginated file viewer with ANSI color support
 """
 
 from dataclasses import dataclass, field
@@ -29,6 +30,172 @@ _ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;?]*[a-zA-Z]|\x1b[>=]')
 def strip_ansi(text: str) -> str:
     """Remove ANSI escape sequences from text."""
     return _ANSI_ESCAPE_RE.sub('', text)
+
+
+@dataclass
+class StyledChar:
+    """A character with color information for ANSI-parsed content."""
+    char: str
+    fg: int = -1  # Foreground color (-1 = default, 0-7 = colors)
+    bg: int = -1  # Background color (-1 = default, 0-7 = colors)
+
+
+def _map_256_to_8(color256: int) -> int:
+    """
+    Map a 256-color palette index to basic 8-color index.
+
+    256-color palette:
+    - 0-7: standard colors (map directly)
+    - 8-15: bright colors (map to 0-7)
+    - 16-231: 6x6x6 RGB cube
+    - 232-255: grayscale ramp
+    """
+    if color256 < 0:
+        return -1
+    if color256 < 8:
+        return color256
+    if color256 < 16:
+        return color256 - 8
+    if color256 < 232:
+        # 6x6x6 color cube: 16 + 36*r + 6*g + b where r,g,b in 0-5
+        idx = color256 - 16
+        r = idx // 36
+        g = (idx % 36) // 6
+        b = idx % 6
+        # Map to basic color based on RGB values
+        # Threshold at 3 (midpoint of 0-5)
+        r_bit = 1 if r >= 3 else 0
+        g_bit = 1 if g >= 3 else 0
+        b_bit = 1 if b >= 3 else 0
+        # Map to 8-color: 0=black, 1=red, 2=green, 3=yellow, 4=blue, 5=magenta, 6=cyan, 7=white
+        return r_bit | (g_bit << 1) | (b_bit << 2)
+    else:
+        # Grayscale: 232-255 maps to 24 levels
+        gray = color256 - 232  # 0-23
+        return 7 if gray >= 12 else 0  # white or black
+
+
+def parse_ansi_line(line: str) -> list[StyledChar]:
+    """
+    Parse a line containing ANSI escape codes and return styled characters.
+
+    Handles SGR (Select Graphic Rendition) codes:
+    - 0: Reset to default
+    - 1: Bold (maps to bright colors +8, but we ignore for basic 8-color)
+    - 30-37: Foreground colors (black, red, green, yellow, blue, magenta, cyan, white)
+    - 40-47: Background colors
+    - 38;5;N: 256-color foreground (mapped to 8 colors)
+    - 48;5;N: 256-color background (mapped to 8 colors)
+    - 90-97: Bright foreground colors (map to 0-7)
+    - 100-107: Bright background colors (map to 0-7)
+
+    Args:
+        line: Text line potentially containing ANSI escape sequences
+
+    Returns:
+        List of StyledChar, one per visible character
+    """
+    result: list[StyledChar] = []
+    fg, bg = -1, -1
+    i = 0
+
+    while i < len(line):
+        # Check for ANSI escape sequence
+        if line[i:i+2] == '\x1b[':
+            # Find the end of the escape sequence (letter terminates it)
+            j = i + 2
+            while j < len(line) and line[j] not in 'ABCDEFGHJKSTfmsu':
+                j += 1
+
+            if j < len(line) and line[j] == 'm':
+                # SGR sequence - parse color codes
+                codes_str = line[i+2:j]
+                if codes_str:
+                    codes = codes_str.split(';')
+                    idx = 0
+                    while idx < len(codes):
+                        try:
+                            code = int(codes[idx]) if codes[idx] else 0
+                        except ValueError:
+                            code = 0
+
+                        if code == 0:
+                            # Reset
+                            fg, bg = -1, -1
+                        elif code == 1:
+                            # Bold - ignore for now (would need bright colors)
+                            pass
+                        elif code == 38 and idx + 2 < len(codes):
+                            # Extended foreground color
+                            try:
+                                mode = int(codes[idx + 1]) if codes[idx + 1] else 0
+                                if mode == 5 and idx + 2 < len(codes):
+                                    # 256-color mode
+                                    color = int(codes[idx + 2]) if codes[idx + 2] else 0
+                                    fg = _map_256_to_8(color)
+                                    idx += 2  # Skip the mode and color params
+                            except (ValueError, IndexError):
+                                pass
+                        elif code == 48 and idx + 2 < len(codes):
+                            # Extended background color
+                            try:
+                                mode = int(codes[idx + 1]) if codes[idx + 1] else 0
+                                if mode == 5 and idx + 2 < len(codes):
+                                    # 256-color mode
+                                    color = int(codes[idx + 2]) if codes[idx + 2] else 0
+                                    bg = _map_256_to_8(color)
+                                    idx += 2  # Skip the mode and color params
+                            except (ValueError, IndexError):
+                                pass
+                        elif 30 <= code <= 37:
+                            # Standard foreground colors
+                            fg = code - 30
+                        elif 40 <= code <= 47:
+                            # Standard background colors
+                            bg = code - 40
+                        elif 90 <= code <= 97:
+                            # Bright foreground (map to standard)
+                            fg = code - 90
+                        elif 100 <= code <= 107:
+                            # Bright background (map to standard)
+                            bg = code - 100
+                        elif code == 39:
+                            # Default foreground
+                            fg = -1
+                        elif code == 49:
+                            # Default background
+                            bg = -1
+
+                        idx += 1
+
+                i = j + 1
+                continue
+            else:
+                # Non-SGR escape sequence, skip it
+                i = j + 1 if j < len(line) else j
+                continue
+
+        # Regular character
+        char = line[i]
+        if char not in ('\r', '\n'):
+            result.append(StyledChar(char, fg, bg))
+        i += 1
+
+    return result
+
+
+def parse_ansi_content(content: str) -> list[list[StyledChar]]:
+    """
+    Parse multi-line content with ANSI codes.
+
+    Args:
+        content: Multi-line text with ANSI escape sequences
+
+    Returns:
+        List of styled lines, each line is a list of StyledChar
+    """
+    lines = content.split('\n')
+    return [parse_ansi_line(line) for line in lines]
 
 
 # Border style character sets
@@ -104,6 +271,7 @@ class ZoneType(Enum):
     FIFO = "fifo"           # Named pipe listener
     SOCKET = "socket"       # Network port listener
     CLIPBOARD = "clipboard" # Yank/paste buffer
+    PAGER = "pager"         # Paginated file viewer with colors
 
 
 @dataclass
@@ -122,6 +290,14 @@ class ZoneConfig:
     path: str | None = None  # FIFO path or "host:port"
     port: int | None = None  # For SOCKET
 
+    # For PAGER zones
+    file_path: str | None = None  # Source file to display
+    renderer: str = "auto"        # "glow", "bat", "plain", or "auto"
+    scroll_offset: int = 0        # Current scroll position (line number)
+    search_term: str | None = None     # Active search term
+    search_matches: list[int] = field(default_factory=list)  # Line numbers with matches
+    search_index: int = 0         # Current match index
+
     # Display options
     scroll: bool = True      # Auto-scroll to bottom on new content
     wrap: bool = False       # Wrap long lines
@@ -129,7 +305,7 @@ class ZoneConfig:
 
     # State
     paused: bool = False     # Pause refresh for WATCH zones
-    focused: bool = False    # PTY zone has keyboard focus
+    focused: bool = False    # PTY/PAGER zone has keyboard focus
 
     def to_dict(self) -> dict:
         """Serialize config to dictionary."""
@@ -144,6 +320,16 @@ class ZoneConfig:
             data["path"] = self.path
         if self.port is not None:
             data["port"] = self.port
+        # PAGER fields
+        if self.file_path:
+            data["file_path"] = self.file_path
+        if self.renderer != "auto":
+            data["renderer"] = self.renderer
+        if self.scroll_offset != 0:
+            data["scroll_offset"] = self.scroll_offset
+        if self.search_term:
+            data["search_term"] = self.search_term
+        # Display options
         if not self.scroll:
             data["scroll"] = self.scroll
         if self.wrap:
@@ -163,6 +349,12 @@ class ZoneConfig:
             shell=data.get("shell", "/bin/bash"),
             path=data.get("path"),
             port=data.get("port"),
+            # PAGER fields
+            file_path=data.get("file_path"),
+            renderer=data.get("renderer", "auto"),
+            scroll_offset=data.get("scroll_offset", 0),
+            search_term=data.get("search_term"),
+            # Display options
             scroll=data.get("scroll", True),
             wrap=data.get("wrap", False),
             max_lines=data.get("max_lines", 1000),
@@ -191,6 +383,7 @@ class Zone:
 
     # Content buffer for dynamic zones (not serialized - regenerated at runtime)
     _content_lines: list[str] = field(default_factory=list, repr=False)
+    _styled_content: list[list[StyledChar]] = field(default_factory=list, repr=False)  # PAGER parsed content
     _runtime_data: dict = field(default_factory=dict, repr=False)  # PTY handle, etc.
 
     @property
@@ -236,14 +429,20 @@ class Zone:
             ZoneType.FIFO: "F",
             ZoneType.SOCKET: "N",
             ZoneType.CLIPBOARD: "C",
+            ZoneType.PAGER: "R",  # R for Reader
         }
         return indicators.get(self.config.zone_type, "?")
+
+    def set_styled_content(self, styled_lines: list[list[StyledChar]]) -> None:
+        """Set parsed ANSI content for PAGER zones."""
+        self._styled_content = styled_lines
 
     def render_to_canvas(self, canvas) -> None:
         """
         Render zone content to canvas.
 
         For dynamic zones, writes content lines to the zone area.
+        For PAGER zones, renders styled content with colors and scroll offset.
         Draws border if configured.
         """
         if not self.is_dynamic:
@@ -259,7 +458,12 @@ class Zone:
             for col in range(content_w):
                 canvas.clear(content_x + col, content_y + row)
 
-        # Write content lines (strip ANSI codes for clean display)
+        # PAGER zones use styled content with scroll offset
+        if self.config.zone_type == ZoneType.PAGER:
+            self._render_pager_content(canvas, content_x, content_y, content_w, content_h)
+            return
+
+        # Other dynamic zones: write content lines (strip ANSI codes)
         for row, line in enumerate(self._content_lines):
             if row >= content_h:
                 break  # Content area full
@@ -269,6 +473,55 @@ class Zone:
                     break  # Line too long
                 if char not in (' ', '\t', '\n', '\r'):
                     canvas.set(content_x + col, content_y + row, char)
+
+    def _render_pager_content(self, canvas, content_x: int, content_y: int,
+                               content_w: int, content_h: int) -> None:
+        """Render PAGER zone with styled content, colors, and scroll offset."""
+        if not self._styled_content:
+            return
+
+        # Get visible lines based on scroll offset
+        start = self.config.scroll_offset
+        # Clamp scroll offset to valid range
+        max_offset = max(0, len(self._styled_content) - content_h)
+        if start > max_offset:
+            start = max_offset
+            self.config.scroll_offset = start
+
+        visible_lines = self._styled_content[start:start + content_h]
+
+        # Check if we have search matches to highlight
+        search_term = self.config.search_term
+        search_lines = set(self.config.search_matches) if self.config.search_matches else set()
+
+        for row, styled_line in enumerate(visible_lines):
+            line_num = start + row
+            is_match_line = line_num in search_lines
+
+            for col, sc in enumerate(styled_line):
+                if col >= content_w:
+                    break  # Line too long
+
+                if sc.char in (' ', '\t', '\n', '\r'):
+                    continue
+
+                # Use character's colors, or highlight if on search match line
+                fg, bg = sc.fg, sc.bg
+                if is_match_line and search_term:
+                    # Highlight search match lines with inverted colors
+                    bg = 6  # Cyan background for match lines
+
+                canvas.set(content_x + col, content_y + row, sc.char, fg=fg, bg=bg)
+
+    @property
+    def pager_line_count(self) -> int:
+        """Get total number of lines in PAGER content."""
+        return len(self._styled_content)
+
+    @property
+    def pager_visible_lines(self) -> int:
+        """Get number of visible lines in PAGER zone."""
+        return self.height - 2  # Minus border
 
     def draw_border(self, canvas, focused: bool = False) -> None:
         """
@@ -1389,6 +1642,244 @@ class Clipboard:
             return False
         except Exception:
             return False
+
+
+# =============================================================================
+# PAGER HANDLER - Paginated file viewer with renderer selection
+# =============================================================================
+
+import shutil
+
+# Renderer configurations for different file types
+PAGER_RENDERERS = {
+    "glow": {
+        "command": "glow -s dark {file}",
+        # Pipe file content to glow since it needs stdin when no tty
+        "wsl_command": "wsl bash -c \"cat '{file}' | glow -s dark -\"",
+        "extensions": [".md", ".markdown", ".mkd", ".mdx"],
+        "check": "glow --version",
+        "wsl_check": "wsl bash -c 'which glow'",
+        "description": "Markdown renderer with styles",
+    },
+    "bat": {
+        "command": "bat --color=always --style=plain --paging=never {file}",
+        # bat --force-colorization helps when no tty
+        "wsl_command": "wsl bash -c \"bat --color=always --style=plain --paging=never --force-colorization '{file}'\"",
+        "extensions": [
+            ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs", ".c", ".h",
+            ".cpp", ".hpp", ".cs", ".rb", ".php", ".sh", ".bash", ".zsh", ".fish",
+            ".yaml", ".yml", ".json", ".toml", ".xml", ".html", ".css", ".scss",
+            ".sql", ".lua", ".vim", ".conf", ".ini", ".dockerfile", ".makefile",
+        ],
+        "check": "bat --version",
+        "wsl_check": "wsl bash -c 'which bat'",
+        "description": "Syntax-highlighted code viewer",
+    },
+    "plain": {
+        # Use cat which works in git bash; 'type' is a bash builtin there
+        "command": "cat {file}",
+        "wsl_command": "wsl bash -c \"cat '{file}'\"",
+        "extensions": ["*"],  # Fallback for any file
+        "check": None,  # Always available
+        "wsl_check": None,
+        "description": "Plain text (no highlighting)",
+    },
+}
+
+# Cache for renderer availability checks
+_renderer_available_cache: dict[str, bool] = {}
+
+
+def check_renderer_available(renderer_name: str, use_wsl: bool = False) -> bool:
+    """
+    Check if a renderer is available on the system.
+
+    Args:
+        renderer_name: Name of renderer ("glow", "bat", "plain")
+        use_wsl: If True, check in WSL environment
+
+    Returns:
+        True if renderer is available
+    """
+    cache_key = f"{renderer_name}:{'wsl' if use_wsl else 'native'}"
+    if cache_key in _renderer_available_cache:
+        return _renderer_available_cache[cache_key]
+
+    if renderer_name not in PAGER_RENDERERS:
+        return False
+
+    config = PAGER_RENDERERS[renderer_name]
+    check_cmd = config.get("wsl_check" if use_wsl else "check")
+
+    if check_cmd is None:
+        # Plain text is always available
+        _renderer_available_cache[cache_key] = True
+        return True
+
+    try:
+        result = subprocess.run(
+            check_cmd,
+            shell=True,
+            capture_output=True,
+            timeout=5
+        )
+        available = result.returncode == 0
+        _renderer_available_cache[cache_key] = available
+        return available
+    except Exception:
+        _renderer_available_cache[cache_key] = False
+        return False
+
+
+def select_renderer(file_path: str, preferred: str = "auto", use_wsl: bool = False) -> str:
+    """
+    Select the best renderer for a file based on extension.
+
+    Args:
+        file_path: Path to the file
+        preferred: Preferred renderer ("auto", "glow", "bat", "plain")
+        use_wsl: If True, check WSL availability
+
+    Returns:
+        Renderer name ("glow", "bat", or "plain")
+    """
+    # If specific renderer requested and available, use it
+    if preferred != "auto" and preferred in PAGER_RENDERERS:
+        if check_renderer_available(preferred, use_wsl):
+            return preferred
+        # Fall through to auto-detection if preferred not available
+
+    # Get file extension
+    _, ext = os.path.splitext(file_path.lower())
+
+    # Check each renderer in preference order
+    for renderer_name in ["glow", "bat"]:
+        config = PAGER_RENDERERS[renderer_name]
+        if ext in config["extensions"]:
+            if check_renderer_available(renderer_name, use_wsl):
+                return renderer_name
+
+    # Fallback to plain
+    return "plain"
+
+
+def render_file_content(file_path: str, renderer: str = "auto", use_wsl: bool = False) -> str:
+    """
+    Render file content using the specified renderer.
+
+    Args:
+        file_path: Path to the file to render
+        renderer: Renderer to use ("auto", "glow", "bat", "plain")
+        use_wsl: If True, use WSL commands
+
+    Returns:
+        Rendered content with ANSI codes, or error message
+    """
+    # Select renderer if auto
+    if renderer == "auto":
+        renderer = select_renderer(file_path, "auto", use_wsl)
+
+    if renderer not in PAGER_RENDERERS:
+        return f"[Unknown renderer: {renderer}]"
+
+    config = PAGER_RENDERERS[renderer]
+
+    # Build command
+    cmd_template = config.get("wsl_command" if use_wsl else "command")
+    if not cmd_template:
+        return f"[No command for renderer: {renderer}]"
+
+    # Handle WSL path conversion if needed
+    render_path = file_path
+    if use_wsl and os.name == 'nt':
+        # Convert Windows path to WSL path
+        # C:\Users\foo -> /mnt/c/Users/foo
+        if len(file_path) >= 2 and file_path[1] == ':':
+            drive = file_path[0].lower()
+            rest = file_path[2:].replace('\\', '/')
+            render_path = f"/mnt/{drive}{rest}"
+
+    cmd = cmd_template.format(file=render_path)
+
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            encoding='utf-8',
+            errors='replace'
+        )
+
+        if result.returncode == 0:
+            return result.stdout
+        else:
+            # Return stderr if command failed
+            return f"[Renderer error: {result.stderr.strip() or 'Unknown error'}]"
+
+    except subprocess.TimeoutExpired:
+        return "[Render timeout]"
+    except FileNotFoundError:
+        return f"[File not found: {file_path}]"
+    except Exception as e:
+        return f"[Render error: {e}]"
+
+
+def load_pager_content(zone: "Zone", use_wsl: bool = False) -> bool:
+    """
+    Load and render content for a PAGER zone.
+
+    Args:
+        zone: The PAGER zone to load content for
+        use_wsl: If True, use WSL for rendering
+
+    Returns:
+        True on success, False on error
+    """
+    if zone.config.zone_type != ZoneType.PAGER:
+        return False
+
+    file_path = zone.config.file_path
+    if not file_path:
+        zone.set_content(["[No file path configured]"])
+        return False
+
+    # Check if file exists (native check)
+    if not os.path.exists(file_path):
+        zone.set_content([f"[File not found: {file_path}]"])
+        return False
+
+    # Render content
+    renderer = zone.config.renderer
+    content = render_file_content(file_path, renderer, use_wsl)
+
+    # Parse ANSI codes into styled content
+    styled_lines = parse_ansi_content(content)
+    zone.set_styled_content(styled_lines)
+
+    # Also store plain lines for search
+    plain_lines = content.split('\n')
+    zone._content_lines = plain_lines
+
+    return True
+
+
+def get_available_renderers(use_wsl: bool = False) -> list[tuple[str, str, bool]]:
+    """
+    Get list of all renderers with availability status.
+
+    Args:
+        use_wsl: If True, check WSL availability
+
+    Returns:
+        List of (name, description, available) tuples
+    """
+    result = []
+    for name, config in PAGER_RENDERERS.items():
+        available = check_renderer_available(name, use_wsl)
+        result.append((name, config["description"], available))
+    return result
 
 
 # =============================================================================

@@ -24,7 +24,8 @@ from zones import (
     Zone, ZoneManager, ZoneExecutor, ZoneType, ZoneConfig,
     PTYHandler, PTY_AVAILABLE, Clipboard,
     FIFOHandler, SocketHandler,
-    get_border_style, set_border_style, list_border_styles
+    get_border_style, set_border_style, list_border_styles,
+    load_pager_content, get_available_renderers, strip_ansi
 )
 from layouts import LayoutManager, install_default_layouts
 from external import (
@@ -72,6 +73,9 @@ class Application:
 
         # PTY focus tracking
         self._focused_pty: str | None = None  # Name of focused PTY zone
+
+        # Pager focus tracking
+        self._focused_pager: str | None = None  # Name of focused PAGER zone
 
         # API server components
         self.command_queue = CommandQueue()
@@ -170,6 +174,8 @@ class Application:
                     zones=self.zone_manager
                 )
                 add_recent_project(filepath)
+                # Initialize PAGER zones with content
+                self._init_pager_zones()
                 self._show_message(f"Loaded: {filepath.name}")
             else:
                 # Treat as text file
@@ -220,6 +226,12 @@ class Application:
                 center_y = zone.y + (zone.height // 2)
                 self.state_machine.bookmarks.set(zone.bookmark, center_x, center_y, zone.name)
 
+    def _init_pager_zones(self) -> None:
+        """Initialize PAGER zones by loading their content."""
+        for zone in self.zone_manager.list_all():
+            if zone.zone_type == ZoneType.PAGER and zone.config.file_path:
+                load_pager_content(zone, use_wsl=False)
+
     def _show_message(self, message: str, frames: int = 2) -> None:
         """Show a temporary status message."""
         self._status_message = message
@@ -235,6 +247,20 @@ class Application:
         # Show PTY focus mode indicator
         if self._focused_pty:
             return f" [PTY] {self._focused_pty} - Press Esc to unfocus"
+
+        # Show PAGER focus mode indicator
+        if self._focused_pager:
+            zone = self.zone_manager.get(self._focused_pager)
+            if zone and zone.zone_type == ZoneType.PAGER:
+                line = zone.config.scroll_offset + 1
+                total = zone.pager_line_count
+                pct = int(100 * zone.config.scroll_offset / max(1, total - zone.pager_visible_lines)) if total > zone.pager_visible_lines else 100
+                search_info = ""
+                if zone.config.search_term and zone.config.search_matches:
+                    idx = zone.config.search_index + 1
+                    cnt = len(zone.config.search_matches)
+                    search_info = f" \"{zone.config.search_term}\" {idx}/{cnt}"
+                return f" [PAGER] {self._focused_pager} - Line {line}/{total} ({pct}%){search_info} - j/k:scroll g/G:top/bottom n/N:match q:exit"
 
         # Show command buffer in command mode
         if self.state_machine.mode == Mode.COMMAND:
@@ -385,12 +411,17 @@ class Application:
                         self._forward_key_to_pty(key)
                     continue
 
+                # If PAGER is focused, handle pager navigation
+                if self._focused_pager:
+                    if self._handle_pager_key(key):
+                        continue
+
                 # Convert curses key to action
                 event = self._curses_key_to_event(key)
                 if not event:
                     continue
 
-                # Check if Enter pressed in a PTY zone - focus it
+                # Check if Enter pressed in a PTY or PAGER zone - focus it
                 if event.action == Action.NEWLINE:
                     current_zone = self.zone_manager.find_at(
                         self.viewport.cursor.x, self.viewport.cursor.y
@@ -400,6 +431,13 @@ class Application:
                             self._focused_pty = current_zone.name
                             self._show_message(f"PTY focused: {current_zone.name}")
                             continue
+                    elif current_zone and current_zone.zone_type == ZoneType.PAGER:
+                        self._focused_pager = current_zone.name
+                        zone = self.zone_manager.get(current_zone.name)
+                        line = zone.config.scroll_offset + 1
+                        total = zone.pager_line_count
+                        self._show_message(f"PAGER focused: {current_zone.name} - Line {line}/{total}")
+                        continue
 
                 # Process through state machine
                 result = self.state_machine.process(event)
@@ -608,6 +646,103 @@ class Application:
             return  # Unknown key, don't forward
 
         self.pty_handler.send_input(self._focused_pty, data)
+
+    def _handle_pager_key(self, key: int) -> bool:
+        """
+        Handle key press when a PAGER zone is focused.
+
+        Keys:
+            j / DOWN: Scroll down one line
+            k / UP: Scroll up one line
+            d / PGDN: Scroll down half page
+            u / PGUP: Scroll up half page
+            g: Go to top
+            G: Go to bottom
+            n: Next search match
+            N: Previous search match
+            q / Esc: Unfocus
+
+        Returns:
+            True if key was handled, False otherwise
+        """
+        if not self._focused_pager:
+            return False
+
+        zone = self.zone_manager.get(self._focused_pager)
+        if not zone or zone.zone_type != ZoneType.PAGER:
+            self._focused_pager = None
+            return False
+
+        max_offset = max(0, zone.pager_line_count - zone.pager_visible_lines)
+        half_page = zone.pager_visible_lines // 2
+
+        handled = True
+
+        # Escape or q: unfocus
+        if key == 27 or key == ord('q'):
+            self._focused_pager = None
+            self._show_message("PAGER unfocused")
+
+        # j or DOWN: scroll down one line
+        elif key == ord('j') or key == curses.KEY_DOWN:
+            if zone.config.scroll_offset < max_offset:
+                zone.config.scroll_offset += 1
+
+        # k or UP: scroll up one line
+        elif key == ord('k') or key == curses.KEY_UP:
+            if zone.config.scroll_offset > 0:
+                zone.config.scroll_offset -= 1
+
+        # d or PGDN: scroll down half page
+        elif key == ord('d') or key == curses.KEY_NPAGE:
+            zone.config.scroll_offset = min(max_offset, zone.config.scroll_offset + half_page)
+
+        # u or PGUP: scroll up half page
+        elif key == ord('u') or key == curses.KEY_PPAGE:
+            zone.config.scroll_offset = max(0, zone.config.scroll_offset - half_page)
+
+        # g: go to top
+        elif key == ord('g'):
+            zone.config.scroll_offset = 0
+
+        # G: go to bottom
+        elif key == ord('G'):
+            zone.config.scroll_offset = max_offset
+
+        # n: next search match
+        elif key == ord('n'):
+            if zone.config.search_matches:
+                zone.config.search_index = (zone.config.search_index + 1) % len(zone.config.search_matches)
+                zone.config.scroll_offset = zone.config.search_matches[zone.config.search_index]
+                self._show_message(
+                    f"Match {zone.config.search_index + 1}/{len(zone.config.search_matches)}"
+                )
+            else:
+                self._show_message("No search - use :zone search NAME TERM")
+
+        # N: previous search match
+        elif key == ord('N'):
+            if zone.config.search_matches:
+                zone.config.search_index = (zone.config.search_index - 1) % len(zone.config.search_matches)
+                zone.config.scroll_offset = zone.config.search_matches[zone.config.search_index]
+                self._show_message(
+                    f"Match {zone.config.search_index + 1}/{len(zone.config.search_matches)}"
+                )
+            else:
+                self._show_message("No search - use :zone search NAME TERM")
+
+        # /: unfocus and go to command mode for search
+        elif key == ord('/'):
+            self._focused_pager = None
+            # Pre-fill command with search command
+            self.state_machine._enter_command_mode()
+            self.state_machine._command_buffer = f"zone search {zone.name} "
+            self._show_message("Enter search term...")
+
+        else:
+            handled = False
+
+        return handled
 
     def _execute_external_command(self, command: str) -> ModeResult:
         """Execute a command string from external source."""
@@ -1429,9 +1564,14 @@ class Application:
             :zone export NAME [FILE]          - Export zone buffer to file
             :zone pty NAME W H [SHELL]        - Create PTY zone (Unix only)
             :zone send NAME TEXT              - Send text to PTY zone
-            :zone focus NAME                  - Focus PTY zone
+            :zone focus NAME                  - Focus PTY/pager zone
             :zone fifo NAME W H PATH          - Create FIFO zone (Unix only)
             :zone socket NAME W H PORT        - Create socket zone
+            :zone pager NAME W H FILE [opts]  - Create pager zone for file viewing
+            :zone scroll NAME +/-N|top|bottom - Scroll pager zone
+            :zone search NAME TERM            - Search in pager zone
+            :zone reload NAME                 - Reload pager content
+            :zone renderers [--wsl]           - List available renderers
         """
         if not args:
             return ModeResult(
@@ -1509,10 +1649,13 @@ class Application:
                 if zone is None:
                     return ModeResult(message=f"Zone '{args[1]}' not found")
 
-            info = f"'{zone.name}' ({zone.x},{zone.y}) {zone.width}x{zone.height}"
+            info = f"'{zone.name}' ({zone.x},{zone.y}) {zone.width}x{zone.height} [{zone.type_indicator()}]"
             if zone.bookmark:
                 info += f" [bookmark:{zone.bookmark}]"
-            if zone.description:
+            if zone.zone_type == ZoneType.PAGER:
+                info += f" | styled_lines={len(zone._styled_content)}"
+                info += f" | file={zone.config.file_path}"
+            elif zone.description:
                 info += f" - {zone.description}"
             return ModeResult(message=info)
 
@@ -1749,12 +1892,18 @@ class Application:
             zone = self.zone_manager.get(name)
             if not zone:
                 return ModeResult(message=f"Zone '{name}' not found")
-            if zone.zone_type != ZoneType.PTY:
-                return ModeResult(message=f"Zone '{name}' is not a PTY zone")
-            if not self.pty_handler.is_active(name):
-                return ModeResult(message=f"PTY for zone '{name}' is not active")
-            self._focused_pty = name
-            return ModeResult(message=f"PTY focused: {name}")
+            if zone.zone_type == ZoneType.PTY:
+                if not self.pty_handler.is_active(name):
+                    return ModeResult(message=f"PTY for zone '{name}' is not active")
+                self._focused_pty = name
+                return ModeResult(message=f"PTY focused: {name}")
+            elif zone.zone_type == ZoneType.PAGER:
+                self._focused_pager = name
+                line = zone.config.scroll_offset + 1
+                total = zone.pager_line_count
+                return ModeResult(message=f"PAGER focused: {name} - Line {line}/{total}")
+            else:
+                return ModeResult(message=f"Zone '{name}' is not a PTY or PAGER zone")
 
         # :zone fifo NAME W H PATH
         elif subcmd == "fifo":
@@ -1822,9 +1971,159 @@ class Application:
             except ValueError as e:
                 return ModeResult(message=str(e))
 
+        # :zone pager NAME W H FILE [--renderer RENDERER] [--wsl]
+        elif subcmd == "pager":
+            if len(args) < 5:
+                return ModeResult(message="Usage: zone pager NAME W H FILE [--renderer glow|bat|plain] [--wsl]")
+            name = args[1]
+            try:
+                w, h = int(args[2]), int(args[3])
+                file_path = args[4]
+            except (ValueError, IndexError):
+                return ModeResult(message="Invalid width/height")
+
+            # Parse optional flags
+            renderer = "auto"
+            use_wsl = False
+            i = 5
+            while i < len(args):
+                if args[i] == "--renderer" and i + 1 < len(args):
+                    renderer = args[i + 1]
+                    i += 2
+                elif args[i] == "--wsl":
+                    use_wsl = True
+                    i += 1
+                else:
+                    i += 1
+
+            x = self.viewport.cursor.x
+            y = self.viewport.cursor.y
+
+            # Resolve relative paths
+            import os
+            if not os.path.isabs(file_path):
+                file_path = os.path.abspath(file_path)
+
+            try:
+                # Create zone with PAGER config
+                config = ZoneConfig(
+                    zone_type=ZoneType.PAGER,
+                    file_path=file_path,
+                    renderer=renderer,
+                )
+                zone = self.zone_manager.create(
+                    name, x, y, w, h, config=config,
+                    description=f"Pager: {os.path.basename(file_path)}"
+                )
+
+                # Load and render content
+                if load_pager_content(zone, use_wsl):
+                    self.project.mark_dirty()
+                    line_count = zone.pager_line_count
+                    return ModeResult(message=f"Created pager zone '{name}' - {line_count} lines - press Enter to focus")
+                else:
+                    self.zone_manager.delete(name)
+                    return ModeResult(message=f"Failed to load content for pager zone '{name}'")
+            except ValueError as e:
+                return ModeResult(message=str(e))
+
+        # :zone scroll NAME +/-N|top|bottom
+        elif subcmd == "scroll":
+            if len(args) < 3:
+                return ModeResult(message="Usage: zone scroll NAME +/-N|top|bottom")
+            name = args[1]
+            zone = self.zone_manager.get(name)
+            if zone is None:
+                return ModeResult(message=f"Zone '{name}' not found")
+            if zone.zone_type != ZoneType.PAGER:
+                return ModeResult(message=f"Zone '{name}' is not a pager zone")
+
+            scroll_arg = args[2].lower()
+            max_offset = max(0, zone.pager_line_count - zone.pager_visible_lines)
+
+            if scroll_arg == "top":
+                zone.config.scroll_offset = 0
+            elif scroll_arg == "bottom":
+                zone.config.scroll_offset = max_offset
+            else:
+                try:
+                    if scroll_arg.startswith('+'):
+                        delta = int(scroll_arg[1:])
+                        zone.config.scroll_offset = min(max_offset, zone.config.scroll_offset + delta)
+                    elif scroll_arg.startswith('-'):
+                        delta = int(scroll_arg[1:])
+                        zone.config.scroll_offset = max(0, zone.config.scroll_offset - delta)
+                    else:
+                        # Absolute position
+                        zone.config.scroll_offset = max(0, min(max_offset, int(scroll_arg)))
+                except ValueError:
+                    return ModeResult(message=f"Invalid scroll value: {scroll_arg}")
+
+            line = zone.config.scroll_offset + 1
+            total = zone.pager_line_count
+            return ModeResult(message=f"Scrolled to line {line}/{total}")
+
+        # :zone search NAME TERM
+        elif subcmd == "search":
+            if len(args) < 3:
+                return ModeResult(message="Usage: zone search NAME TERM")
+            name = args[1]
+            zone = self.zone_manager.get(name)
+            if zone is None:
+                return ModeResult(message=f"Zone '{name}' not found")
+            if zone.zone_type != ZoneType.PAGER:
+                return ModeResult(message=f"Zone '{name}' is not a pager zone")
+
+            term = " ".join(args[2:])
+            zone.config.search_term = term
+            zone.config.search_matches = []
+            zone.config.search_index = 0
+
+            # Search through plain content lines
+            for i, line in enumerate(zone._content_lines):
+                if term.lower() in strip_ansi(line).lower():
+                    zone.config.search_matches.append(i)
+
+            if zone.config.search_matches:
+                # Jump to first match
+                zone.config.scroll_offset = zone.config.search_matches[0]
+                return ModeResult(
+                    message=f"Found {len(zone.config.search_matches)} matches - use n/N to navigate"
+                )
+            else:
+                zone.config.search_term = None
+                return ModeResult(message=f"No matches for '{term}'")
+
+        # :zone reload NAME
+        elif subcmd == "reload":
+            if len(args) < 2:
+                return ModeResult(message="Usage: zone reload NAME")
+            name = args[1]
+            zone = self.zone_manager.get(name)
+            if zone is None:
+                return ModeResult(message=f"Zone '{name}' not found")
+            if zone.zone_type != ZoneType.PAGER:
+                return ModeResult(message=f"Zone '{name}' is not a pager zone")
+
+            if load_pager_content(zone, use_wsl=False):
+                return ModeResult(message=f"Reloaded pager zone '{name}' - {zone.pager_line_count} lines")
+            else:
+                return ModeResult(message=f"Failed to reload content for '{name}'")
+
+        # :zone renderers
+        elif subcmd == "renderers":
+            use_wsl = "--wsl" in args
+            renderers = get_available_renderers(use_wsl)
+            lines = []
+            for name, desc, available in renderers:
+                status = "✓" if available else "✗"
+                lines.append(f"  {status} {name}: {desc}")
+            env = "WSL" if use_wsl else "native"
+            return ModeResult(message=f"Renderers ({env}):\n" + "\n".join(lines))
+
         else:
             return ModeResult(
-                message="Usage: zone create|delete|goto|pipe|watch|pty|fifo|socket|..."
+                message="Usage: zone create|delete|goto|pipe|watch|pager|pty|fifo|socket|..."
             )
 
     def _cmd_zones(self, args: list[str]) -> ModeResult:

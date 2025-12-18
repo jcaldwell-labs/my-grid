@@ -240,7 +240,8 @@ class Project:
                 bookmarks.set(key, bm.get("x", 0), bm.get("y", 0), bm.get("name", ""))
 
         # Load zones
-        if zones and "zones" in data:
+        # Note: Use 'zones is not None' because empty ZoneManager is falsy (len=0)
+        if zones is not None and "zones" in data:
             from zones import ZoneManager
             zones.clear()
             loaded_zones = ZoneManager.from_dict(data["zones"])
