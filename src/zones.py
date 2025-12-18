@@ -32,34 +32,40 @@ def strip_ansi(text: str) -> str:
 
 
 # Border style character sets
+# Includes corners, edges, and junction characters for DRAW mode
 BORDER_STYLES = {
     "ascii": {
         "tl": "+", "tr": "+", "bl": "+", "br": "+",
         "horiz": "-", "vert": "|",
+        "cross": "+", "tee_down": "+", "tee_up": "+", "tee_right": "+", "tee_left": "+",
         "focused_tl": "#", "focused_tr": "#", "focused_bl": "#", "focused_br": "#",
         "focused_horiz": "=", "focused_vert": "#",
     },
     "unicode": {
         "tl": "┌", "tr": "┐", "bl": "└", "br": "┘",
         "horiz": "─", "vert": "│",
+        "cross": "┼", "tee_down": "┬", "tee_up": "┴", "tee_right": "├", "tee_left": "┤",
         "focused_tl": "╔", "focused_tr": "╗", "focused_bl": "╚", "focused_br": "╝",
         "focused_horiz": "═", "focused_vert": "║",
     },
     "rounded": {
         "tl": "╭", "tr": "╮", "bl": "╰", "br": "╯",
         "horiz": "─", "vert": "│",
+        "cross": "┼", "tee_down": "┬", "tee_up": "┴", "tee_right": "├", "tee_left": "┤",
         "focused_tl": "╔", "focused_tr": "╗", "focused_bl": "╚", "focused_br": "╝",
         "focused_horiz": "═", "focused_vert": "║",
     },
     "double": {
         "tl": "╔", "tr": "╗", "bl": "╚", "br": "╝",
         "horiz": "═", "vert": "║",
+        "cross": "╬", "tee_down": "╦", "tee_up": "╩", "tee_right": "╠", "tee_left": "╣",
         "focused_tl": "╬", "focused_tr": "╬", "focused_bl": "╬", "focused_br": "╬",
         "focused_horiz": "═", "focused_vert": "║",
     },
     "heavy": {
         "tl": "┏", "tr": "┓", "bl": "┗", "br": "┛",
         "horiz": "━", "vert": "┃",
+        "cross": "╋", "tee_down": "┳", "tee_up": "┻", "tee_right": "┣", "tee_left": "┫",
         "focused_tl": "╋", "focused_tr": "╋", "focused_bl": "╋", "focused_br": "╋",
         "focused_horiz": "━", "focused_vert": "┃",
     },
@@ -83,6 +89,10 @@ def set_border_style(style: str) -> bool:
 def list_border_styles() -> list[str]:
     """List available border styles."""
     return list(BORDER_STYLES.keys())
+
+def get_border_chars() -> dict[str, str]:
+    """Get character set for current border style."""
+    return BORDER_STYLES.get(_current_border_style, BORDER_STYLES["ascii"])
 
 
 class ZoneType(Enum):

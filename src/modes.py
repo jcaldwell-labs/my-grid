@@ -27,6 +27,7 @@ class Mode(Enum):
     MARK_SET = auto()      # Waiting for bookmark key (m + key)
     MARK_JUMP = auto()     # Waiting for bookmark key (' + key)
     VISUAL = auto()        # Visual selection mode
+    DRAW = auto()          # Line drawing mode
 
 
 @dataclass
@@ -280,6 +281,13 @@ class ModeStateMachine:
         # Track edit mode starting column for Enter key behavior
         self._edit_start_x: int | None = None
 
+        # Track last movement direction for DRAW mode
+        self._draw_last_dir: tuple[int, int] | None = None
+        # Pen state for DRAW mode (True = drawing, False = moving without drawing)
+        self._draw_pen_down: bool = True
+        # Frame guard to prevent double-toggle (when joystick A also sends spacebar)
+        self._pen_toggled_this_frame: bool = False
+
         # Command handlers: command_name -> callable
         self._command_handlers: dict[str, Callable[[list[str]], ModeResult]] = {}
         self._register_default_commands()
@@ -344,6 +352,8 @@ class ModeStateMachine:
             return self._process_mark_jump(event)
         elif self._mode == Mode.VISUAL:
             return self._process_visual(event)
+        elif self._mode == Mode.DRAW:
+            return self._process_draw(event)
 
         return ModeResult(handled=False)
 
@@ -366,6 +376,10 @@ class ModeStateMachine:
             self.selection = None
             self.set_mode(Mode.NAV)
             return ModeResult(mode_changed=True, new_mode=Mode.NAV, message="Selection cancelled")
+        elif self._mode == Mode.DRAW:
+            self._draw_last_dir = None
+            self.set_mode(Mode.NAV)
+            return ModeResult(mode_changed=True, new_mode=Mode.NAV)
         return ModeResult()
 
     def _process_nav(self, event: "InputEvent") -> ModeResult:
@@ -387,6 +401,13 @@ class ModeStateMachine:
         if action == Action.ENTER_COMMAND_MODE:
             self.set_mode(Mode.COMMAND)
             return ModeResult(mode_changed=True, new_mode=Mode.COMMAND)
+
+        if action == Action.ENTER_DRAW_MODE:
+            self._draw_last_dir = None
+            self._draw_pen_down = True  # Start with pen down
+            self.set_mode(Mode.DRAW)
+            return ModeResult(mode_changed=True, new_mode=Mode.DRAW,
+                            message="-- DRAW -- pen DOWN (wasd to draw, space to lift)")
 
         # Cursor movement
         moved = self._handle_movement(action, cfg.move_step, cfg.move_fast_step)
@@ -434,6 +455,14 @@ class ModeStateMachine:
             self.set_mode(Mode.VISUAL)
             return ModeResult(mode_changed=True, new_mode=Mode.VISUAL,
                             message="-- VISUAL -- (1x1)")
+
+        # Draw mode (line drawing)
+        if event.char == 'D':
+            self._draw_last_dir = None
+            self._draw_pen_down = True  # Start with pen down
+            self.set_mode(Mode.DRAW)
+            return ModeResult(mode_changed=True, new_mode=Mode.DRAW,
+                            message="-- DRAW -- pen DOWN (wasd to draw, space to lift)")
 
         return ModeResult(handled=False)
 
@@ -895,3 +924,172 @@ class ModeStateMachine:
             )
 
         return ModeResult(handled=False)
+
+    def _process_draw(self, event: "InputEvent") -> ModeResult:
+        """Process input in DRAW mode - movement draws lines."""
+        from input import Action
+        from zones import get_border_chars
+        import logging
+        _draw_log = logging.getLogger("joystick_debug")
+
+        action = event.action
+        cfg = self.config
+
+        # Direction mapping for movement actions
+        dir_map = {
+            Action.MOVE_UP: (0, -1),
+            Action.MOVE_DOWN: (0, 1),
+            Action.MOVE_LEFT: (-1, 0),
+            Action.MOVE_RIGHT: (1, 0),
+        }
+
+        if action in dir_map:
+            dx, dy = dir_map[action]
+            x, y = self.viewport.cursor.x, self.viewport.cursor.y
+
+            _draw_log.debug(f"DRAW move: pen_down={self._draw_pen_down}, action={action.name}")
+
+            # Only draw if pen is down
+            if self._draw_pen_down:
+                # Get the line character for current position
+                char = self._get_draw_char(x, y, self._draw_last_dir, (dx, dy))
+                self.canvas.set(x, y, char, fg=self.draw_fg, bg=self.draw_bg)
+                # Update last direction only when drawing
+                self._draw_last_dir = (dx, dy)
+            else:
+                # Pen up - clear last direction so next pen-down starts fresh
+                self._draw_last_dir = None
+
+            # Move cursor
+            self.viewport.move_cursor(dx, dy)
+            self.viewport.ensure_cursor_visible(margin=cfg.scroll_margin)
+
+            return ModeResult()
+
+        # Space bar toggles pen up/down (with frame guard to prevent double-toggle)
+        if event.char == ' ':
+            if self._pen_toggled_this_frame:
+                _draw_log.debug(f"SPACEBAR: BLOCKED by frame guard (already toggled)")
+                return ModeResult()  # Already toggled this frame, ignore
+            _draw_log.debug(f"SPACEBAR: pen_before={self._draw_pen_down}")
+            pen_down = self.toggle_draw_pen()
+            _draw_log.debug(f"SPACEBAR: pen_after={pen_down}")
+            state = "DOWN (drawing)" if pen_down else "UP (moving)"
+            return ModeResult(message=f"-- DRAW -- pen {state}")
+
+        return ModeResult(handled=False)
+
+    def toggle_draw_pen(self) -> bool:
+        """Toggle pen up/down state in DRAW mode. Returns new state (True=down)."""
+        import logging
+        _draw_log = logging.getLogger("joystick_debug")
+        _draw_log.debug(f"toggle_draw_pen() called: before={self._draw_pen_down}")
+        self._draw_pen_down = not self._draw_pen_down
+        self._pen_toggled_this_frame = True  # Set frame guard
+        _draw_log.debug(f"toggle_draw_pen() done: after={self._draw_pen_down}")
+        if not self._draw_pen_down:
+            # Reset direction when lifting pen
+            self._draw_last_dir = None
+        return self._draw_pen_down
+
+    def reset_pen_toggle_guard(self) -> None:
+        """Reset the frame guard. Call this once per frame."""
+        self._pen_toggled_this_frame = False
+
+    def _get_draw_char(
+        self,
+        x: int,
+        y: int,
+        from_dir: tuple[int, int] | None,
+        to_dir: tuple[int, int]
+    ) -> str:
+        """
+        Determine the appropriate line character based on directions.
+
+        Uses direction bits: UP=1, DOWN=2, LEFT=4, RIGHT=8
+        Each line character represents a combination of connected directions.
+        """
+        from zones import get_border_chars
+
+        chars = get_border_chars()
+
+        # Direction bit flags
+        UP, DOWN, LEFT, RIGHT = 1, 2, 4, 8
+
+        # Map directions to bits
+        dir_to_bit = {
+            (0, -1): UP,
+            (0, 1): DOWN,
+            (-1, 0): LEFT,
+            (1, 0): RIGHT,
+        }
+
+        # Map bit combinations to character keys
+        bit_to_char = {
+            LEFT | RIGHT: "horiz",           # ─
+            UP | DOWN: "vert",               # │
+            DOWN | RIGHT: "tl",              # ┌ (going down-right, corner at top-left)
+            DOWN | LEFT: "tr",               # ┐
+            UP | RIGHT: "bl",                # └
+            UP | LEFT: "br",                 # ┘
+            LEFT | RIGHT | DOWN: "tee_down", # ┬
+            LEFT | RIGHT | UP: "tee_up",     # ┴
+            UP | DOWN | RIGHT: "tee_right",  # ├
+            UP | DOWN | LEFT: "tee_left",    # ┤
+            UP | DOWN | LEFT | RIGHT: "cross", # ┼
+        }
+
+        # Calculate current direction bits
+        bits = 0
+
+        # Add the direction we're going TO
+        if to_dir in dir_to_bit:
+            bits |= dir_to_bit[to_dir]
+
+        # Add the direction we came FROM (opposite of from_dir)
+        if from_dir:
+            # We came FROM from_dir, so we connect in the opposite direction
+            opposite = (-from_dir[0], -from_dir[1])
+            if opposite in dir_to_bit:
+                bits |= dir_to_bit[opposite]
+
+        # Check existing cell for additional directions
+        cell = self.canvas.get(x, y)
+        if cell:
+            existing_bits = self._char_to_bits(cell.char, chars)
+            bits |= existing_bits
+
+        # Look up the character for this bit combination
+        char_key = bit_to_char.get(bits)
+        if char_key and char_key in chars:
+            return chars[char_key]
+
+        # Fallback: if only one direction, use appropriate line
+        if bits == UP or bits == DOWN:
+            return chars["vert"]
+        if bits == LEFT or bits == RIGHT:
+            return chars["horiz"]
+
+        # Default fallback
+        return chars.get("cross", "+")
+
+    def _char_to_bits(self, char: str, chars: dict[str, str]) -> int:
+        """Convert a line character back to direction bits."""
+        UP, DOWN, LEFT, RIGHT = 1, 2, 4, 8
+
+        # Reverse mapping from character to bits
+        char_to_bits_map = {
+            chars.get("horiz", "-"): LEFT | RIGHT,
+            chars.get("vert", "|"): UP | DOWN,
+            chars.get("tl", "+"): DOWN | RIGHT,
+            chars.get("tr", "+"): DOWN | LEFT,
+            chars.get("bl", "+"): UP | RIGHT,
+            chars.get("br", "+"): UP | LEFT,
+            chars.get("tee_down", "+"): LEFT | RIGHT | DOWN,
+            chars.get("tee_up", "+"): LEFT | RIGHT | UP,
+            chars.get("tee_right", "+"): UP | DOWN | RIGHT,
+            chars.get("tee_left", "+"): UP | DOWN | LEFT,
+            chars.get("cross", "+"): UP | DOWN | LEFT | RIGHT,
+        }
+
+        return char_to_bits_map.get(char, 0)

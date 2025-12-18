@@ -88,6 +88,7 @@ Renderer.render(canvas, viewport, status) → Terminal Display
 | MARK_SET | `m` | a-z, 0-9 | Set bookmark at cursor |
 | MARK_JUMP | `'` | a-z, 0-9 | Jump to bookmark |
 | VISUAL | `v` | wasd/arrows | Visual selection mode |
+| DRAW | `D` | wasd/arrows | Line drawing mode |
 
 Exit any mode with `Esc`.
 
@@ -109,6 +110,48 @@ Visual selection mode allows selecting a rectangular region on the canvas for bu
 | `Esc` | Cancel selection |
 
 The selection is highlighted in cyan. The cursor shows one corner, the anchor is at the starting position.
+
+---
+
+## Draw Mode
+
+Draw mode allows tracing lines with box-drawing characters using cursor movement.
+
+**Enter**: Press `D` in NAV mode or use `:draw` command
+**Exit**: Press `Esc`
+
+| Key | Action |
+|-----|--------|
+| `wasd` / arrows | Draw line in direction (pen down) or move (pen up) |
+| `Space` | Toggle pen up/down |
+| `Esc` | Exit draw mode |
+
+**Pen States**:
+- **Pen DOWN**: Movement draws lines
+- **Pen UP**: Movement just moves cursor without drawing
+
+**Joystick Support**:
+- D-pad/stick: Move and draw
+- Button A: Toggle pen up/down
+- Button B: Exit draw mode
+
+**Features**:
+- Uses current border style (`:border ascii/unicode/rounded/double/heavy`)
+- Auto-detects corners when changing direction
+- Smart junctions when lines cross (┼) or meet (├ ┤ ┬ ┴)
+- Uses current drawing colors (`:color`)
+
+**Example**:
+```
+:border unicode    # Set line style
+D                  # Enter draw mode (pen down)
+→→→↓↓↓            # Draw L-shape
+Space             # Lift pen
+→→→               # Move without drawing
+Space             # Lower pen
+↓↓↓←←←↑↑↑        # Continue drawing
+Esc               # Exit
+```
 
 ---
 

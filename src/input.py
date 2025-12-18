@@ -38,6 +38,7 @@ class Action(Enum):
     ENTER_EDIT_MODE = auto()
     ENTER_PAN_MODE = auto()
     ENTER_COMMAND_MODE = auto()
+    ENTER_DRAW_MODE = auto()
     EXIT_MODE = auto()
     TOGGLE_PAN_MODE = auto()
 

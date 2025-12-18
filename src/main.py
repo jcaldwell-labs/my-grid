@@ -139,6 +139,7 @@ class Application:
         self.state_machine.register_command("fill", self._cmd_fill)
         self.state_machine.register_command("color", self._cmd_color)
         self.state_machine.register_command("palette", self._cmd_palette)
+        self.state_machine.register_command("draw", self._cmd_draw)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -257,8 +258,14 @@ class Application:
             "EDIT": "EDT",
             "COMMAND": "CMD",
             "VISUAL": "VIS",
+            "DRAW": "DRW",
         }
         mode_str = mode_indicators.get(mode, mode)
+
+        # In DRAW mode, show pen state
+        if mode == "DRAW":
+            pen_state = "v" if self.state_machine._draw_pen_down else "^"
+            mode_str = f"DRW{pen_state}"
 
         # Cursor position - prominent display
         pos_str = f"X:{cursor.x:>5} Y:{cursor.y:>5}"
@@ -324,6 +331,9 @@ class Application:
 
         try:
             while running:
+                # Reset frame guards
+                self.state_machine.reset_pen_toggle_guard()
+
                 # Process external commands from API server
                 if self._server_config:
                     self._process_external_commands()
@@ -479,6 +489,17 @@ class Application:
 
     def _process_joystick_input(self) -> None:
         """Process joystick input for cursor movement."""
+        from input import Action, InputEvent
+
+        # Debug logging
+        import logging
+        _joy_log = logging.getLogger("joystick_debug")
+        if not _joy_log.handlers:
+            _joy_log.setLevel(logging.DEBUG)
+            fh = logging.FileHandler("joystick_debug.log")
+            fh.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+            _joy_log.addHandler(fh)
+
         # Get movement from joystick (handles repeat timing internally)
         dx, dy = self.joystick.get_movement()
 
@@ -493,20 +514,65 @@ class Application:
             elif mode == Mode.PAN:
                 # Pan viewport (cursor follows)
                 self.viewport.pan(dx, dy)
+            elif mode == Mode.DRAW:
+                # In DRAW mode, create movement event to trigger line drawing
+                if dx > 0:
+                    action = Action.MOVE_RIGHT
+                elif dx < 0:
+                    action = Action.MOVE_LEFT
+                elif dy > 0:
+                    action = Action.MOVE_DOWN
+                else:
+                    action = Action.MOVE_UP
+                # Process through state machine to draw lines
+                self.state_machine.process(InputEvent(action=action))
 
         # Check for button presses
         buttons = self.joystick.get_button_presses()
+        mode = self.state_machine.mode
+
+        # Debug: log button presses and pen state
+        if buttons:
+            _joy_log.debug(f"Buttons pressed: {buttons}, mode={mode.name}, pen_down_before={self.state_machine._draw_pen_down}")
+
         for btn in buttons:
             if btn == 0:  # A button - confirm/select
-                # In NAV mode, enter edit mode
-                if self.state_machine.mode == Mode.NAV:
+                if mode == Mode.NAV:
+                    # In NAV mode, enter edit mode
                     self.state_machine.set_mode(Mode.EDIT)
-                    self._show_message("-- EDIT --")
+                    self._show_message("-- EDIT --", frames=30)
+                elif mode == Mode.DRAW:
+                    # In DRAW mode, toggle pen up/down (with frame guard)
+                    if self.state_machine._pen_toggled_this_frame:
+                        _joy_log.debug(f"BTN0 in DRAW: BLOCKED by frame guard (already toggled)")
+                        continue  # Skip this button, already toggled this frame
+                    before = self.state_machine._draw_pen_down
+                    _joy_log.debug(f"BTN0 in DRAW: pen_before={before}")
+                    pen_down = self.state_machine.toggle_draw_pen()
+                    after = self.state_machine._draw_pen_down
+                    _joy_log.debug(f"BTN0 in DRAW: pen_after={pen_down}, actual_state={after}")
+                    # Verify the toggle actually happened
+                    if before == after:
+                        _joy_log.error(f"TOGGLE FAILED! before={before}, after={after}")
+                    state = "DOWN (drawing)" if pen_down else "UP (moving)"
+                    self._show_message(f"-- DRAW -- pen {state}", frames=60)
             elif btn == 1:  # B button - back/escape
                 # Exit current mode back to NAV
-                if self.state_machine.mode != Mode.NAV:
+                if mode != Mode.NAV:
                     self.state_machine.set_mode(Mode.NAV)
                     self._show_message("")
+            elif btn == 2:  # X button - cycle border styles
+                from zones import list_border_styles, get_border_style, set_border_style
+                styles = list_border_styles()
+                current = get_border_style()
+                try:
+                    idx = styles.index(current)
+                    next_idx = (idx + 1) % len(styles)
+                except ValueError:
+                    next_idx = 0
+                new_style = styles[next_idx]
+                set_border_style(new_style)
+                self._show_message(f"Border: {new_style}", frames=60)
 
     def _forward_key_to_pty(self, key: int) -> None:
         """Forward a key press to the focused PTY."""
@@ -621,6 +687,10 @@ class Application:
             return InputEvent(action=Action.OPEN)
         if key == 14:  # Ctrl+N
             return InputEvent(action=Action.NEW)
+
+        # Special case: 'D' in NAV mode enters DRAW mode (not fast move)
+        if key == ord('D') and self.state_machine.mode == Mode.NAV:
+            return InputEvent(action=Action.ENTER_DRAW_MODE)
 
         # Check mapped actions
         if key in key_map:
@@ -759,8 +829,8 @@ class Application:
         if self._joystick_enabled and self.joystick.is_connected:
             info = self.joystick.get_info()
             joy_status = f"  JOYSTICK: {info['name']} (connected)\n"
-            joy_status += "    D-pad/Stick   - Move cursor       Button A      - Enter EDIT mode\n"
-            joy_status += "    Button B      - Exit to NAV\n\n"
+            joy_status += "    D-pad/Stick   - Move cursor       Button A      - EDIT/toggle pen\n"
+            joy_status += "    Button B      - Exit to NAV       Button X      - Cycle border style\n\n"
 
         # Page 1: Basic navigation and modes
         page1 = f"""
@@ -769,7 +839,8 @@ class Application:
   MODES:
     NAV (default) - Navigate canvas    PAN (p)       - Pan viewport
     EDIT (i)      - Type/draw          COMMAND (:)   - Enter commands
-    VISUAL (v)    - Visual selection   Esc           - Exit current mode
+    VISUAL (v)    - Visual selection   DRAW (D)      - Line drawing
+    Esc           - Exit current mode
 
   NAVIGATION:
     wasd / arrows - Move cursor        WASD          - Fast move (10x)
@@ -784,6 +855,7 @@ class Application:
     :marks        - List all marks         :delmark X - Delete mark X
 
   DRAWING:
+    D / :draw     - Enter line draw mode   :border STYLE - Set line style
     :rect W H [c] - Draw rectangle         :line X Y  - Draw line to X,Y
     :text MSG     - Write text             :box STYLE TEXT - ASCII box
     :figlet TEXT  - ASCII art text         :fill [X Y] W H C - Fill region
@@ -1220,6 +1292,18 @@ class Application:
         """Show available colors."""
         colors = "black(0) red(1) green(2) yellow(3) blue(4) magenta(5) cyan(6) white(7)"
         return ModeResult(message=f"Colors: {colors}", message_frames=60)
+
+    def _cmd_draw(self, args: list[str]) -> ModeResult:
+        """Enter draw mode for line drawing."""
+        from modes import Mode
+        self.state_machine._draw_last_dir = None
+        self.state_machine._draw_pen_down = True  # Start with pen down
+        self.state_machine.set_mode(Mode.DRAW)
+        return ModeResult(
+            mode_changed=True,
+            new_mode=Mode.DRAW,
+            message="-- DRAW -- pen DOWN (wasd to draw, space to lift)"
+        )
 
     def _cmd_grid(self, args: list[str]) -> ModeResult:
         """Configure grid: grid [major|minor|lines|markers|dots|off|rulers|labels|interval]"""
