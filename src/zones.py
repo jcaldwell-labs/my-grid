@@ -464,9 +464,16 @@ class Zone:
             return
 
         # Other dynamic zones: write content lines (strip ANSI codes)
-        for row, line in enumerate(self._content_lines):
-            if row >= content_h:
-                break  # Content area full
+        # Auto-scroll: show last N lines (newest content at bottom)
+        total_lines = len(self._content_lines)
+        if total_lines > content_h:
+            # More content than fits - show last lines (auto-scroll)
+            visible_lines = self._content_lines[-content_h:]
+        else:
+            # All content fits
+            visible_lines = self._content_lines
+
+        for row, line in enumerate(visible_lines):
             clean_line = strip_ansi(line)
             for col, char in enumerate(clean_line):
                 if col >= content_w:
