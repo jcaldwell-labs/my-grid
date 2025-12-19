@@ -463,7 +463,7 @@ class Zone:
             self._render_pager_content(canvas, content_x, content_y, content_w, content_h)
             return
 
-        # Other dynamic zones: write content lines (strip ANSI codes)
+        # Other dynamic zones: parse ANSI codes and render with colors
         # Auto-scroll: show last N lines (newest content at bottom)
         total_lines = len(self._content_lines)
         if total_lines > content_h:
@@ -474,12 +474,17 @@ class Zone:
             visible_lines = self._content_lines
 
         for row, line in enumerate(visible_lines):
-            clean_line = strip_ansi(line)
-            for col, char in enumerate(clean_line):
+            # Parse ANSI codes to preserve colors
+            styled_chars = parse_ansi_line(line)
+
+            for col, sc in enumerate(styled_chars):
                 if col >= content_w:
                     break  # Line too long
-                if char not in (' ', '\t', '\n', '\r'):
-                    canvas.set(content_x + col, content_y + row, char)
+                if sc.char not in (' ', '\t', '\n', '\r'):
+                    # Render with color if specified (use -1 for default, not None)
+                    fg = sc.fg if sc.fg >= 0 else -1
+                    bg = sc.bg if sc.bg >= 0 else -1
+                    canvas.set(content_x + col, content_y + row, sc.char, fg=fg, bg=bg)
 
     def _render_pager_content(self, canvas, content_x: int, content_y: int,
                                content_w: int, content_h: int) -> None:
@@ -1367,9 +1372,8 @@ class PTYHandler:
                 buffer = lines[-1]  # Keep incomplete line in buffer
 
                 for line in lines[:-1]:
-                    # Strip ANSI escape sequences for now (basic handling)
-                    clean_line = self._strip_ansi(line)
-                    zone.append_content(clean_line)
+                    # Keep ANSI codes for color rendering
+                    zone.append_content(line)
 
                 # Note: zone.append_content() already handles max_lines trimming
 
