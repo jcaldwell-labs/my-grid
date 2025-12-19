@@ -33,7 +33,7 @@ def get_layouts_dir() -> Path:
 class LayoutZone:
     """Zone definition within a layout."""
     name: str
-    zone_type: str  # static, pipe, watch, pty, fifo, socket
+    zone_type: str  # static, pipe, watch, pty, fifo, socket, pager
     x: int
     y: int
     width: int
@@ -43,6 +43,8 @@ class LayoutZone:
     shell: str | None = None  # For PTY zones
     path: str | None = None  # For FIFO zones
     port: int | None = None  # For socket zones
+    file_path: str | None = None  # For pager zones
+    renderer: str | None = None  # For pager zones (glow, bat, plain, auto)
     bookmark: str | None = None
     description: str = ""
 
@@ -66,6 +68,10 @@ class LayoutZone:
             data["path"] = self.path
         if self.port is not None:
             data["port"] = self.port
+        if self.file_path:
+            data["file_path"] = self.file_path
+        if self.renderer:
+            data["renderer"] = self.renderer
         if self.bookmark:
             data["bookmark"] = self.bookmark
         if self.description:
@@ -87,6 +93,8 @@ class LayoutZone:
             shell=data.get("shell"),
             path=data.get("path"),
             port=data.get("port"),
+            file_path=data.get("file_path"),
+            renderer=data.get("renderer"),
             bookmark=data.get("bookmark"),
             description=data.get("description", ""),
         )
@@ -324,6 +332,10 @@ class LayoutManager:
                     config.path = lz.path
                 if lz.port is not None:
                     config.port = lz.port
+                if lz.file_path:
+                    config.file_path = lz.file_path
+                if lz.renderer:
+                    config.renderer = lz.renderer
 
                 zone = zone_manager.create(
                     name=lz.name,
@@ -350,6 +362,11 @@ class LayoutManager:
                 elif zone_type == ZoneType.SOCKET and socket_handler:
                     if not socket_handler.create_socket(zone):
                         errors.append(f"Failed to create socket for '{lz.name}'")
+                elif zone_type == ZoneType.PAGER and lz.file_path:
+                    # Load pager content
+                    from zones import load_pager_content
+                    if not load_pager_content(zone, use_wsl=False):
+                        errors.append(f"Failed to load pager content for '{lz.name}'")
 
                 created += 1
 

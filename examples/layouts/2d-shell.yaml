@@ -1,0 +1,71 @@
+name: 2d-shell
+description: Spatial workspace - docs, shell, context, and scratch area
+
+cursor:
+  x: 95
+  y: 12
+
+zones:
+  # Top row - main work areas
+  - name: DOCS
+    type: pager
+    x: 0
+    y: 0
+    width: 90
+    height: 30
+    file_path: ./README.md
+    renderer: auto
+    bookmark: d
+    description: Documentation viewer
+
+  - name: SHELL
+    type: pty
+    x: 92
+    y: 0
+    width: 70
+    height: 20
+    bookmark: s
+    description: Interactive shell
+
+  - name: CONTEXT
+    type: pager
+    x: 164
+    y: 0
+    width: 50
+    height: 20
+    file_path: ./CLAUDE.md
+    renderer: auto
+    bookmark: c
+    description: Project context / CLAUDE.md
+
+  # Middle row - status and integration
+  - name: GIT
+    type: watch
+    x: 92
+    y: 22
+    width: 40
+    height: 10
+    command: git status --short 2>/dev/null || echo 'Not a git repo'
+    interval: 5
+    bookmark: g
+    description: Git status
+
+  - name: CLAUDE
+    type: socket
+    x: 134
+    y: 22
+    width: 50
+    height: 10
+    port: 9999
+    bookmark: a
+    description: Claude API responses
+
+  # Bottom row - scratch and notes
+  - name: SCRATCH
+    type: static
+    x: 0
+    y: 32
+    width: 40
+    height: 12
+    bookmark: x
+    description: Scratch pad / drawing area
