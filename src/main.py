@@ -144,6 +144,7 @@ class Application:
         self.state_machine.register_command("color", self._cmd_color)
         self.state_machine.register_command("palette", self._cmd_palette)
         self.state_machine.register_command("draw", self._cmd_draw)
+        self.state_machine.register_command("shader", self._cmd_shader)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -2125,6 +2126,96 @@ class Application:
             return ModeResult(
                 message="Usage: zone create|delete|goto|pipe|watch|pager|pty|fifo|socket|..."
             )
+
+    def _cmd_shader(self, args: list[str]) -> ModeResult:
+        """Control shader parameters in zone mode animations via control socket.
+
+        Usage:
+            :shader ZONE_NAME param PARAM VALUE  - Set parameter value
+            :shader ZONE_NAME port PORT          - Set control port for zone
+            :shader ZONE_NAME info               - Show zone control info
+
+        Examples:
+            :shader LISSAJOUS param freq_x 5.0
+            :shader PLASMA param freq_y 0.15
+            :shader LISSAJOUS param phase 1.57
+            :shader LISSAJOUS port 9998          - Set control port
+
+        Note: Shaders must be started with --control-port flag
+        """
+        if len(args) < 2:
+            return ModeResult(message="Usage: shader ZONE_NAME param PARAM VALUE")
+
+        zone_name = args[0]
+        zone = self.zone_manager.get(zone_name)
+
+        if not zone:
+            return ModeResult(message=f"Zone '{zone_name}' not found")
+
+        subcmd = args[1].lower()
+
+        # Port assignment for shader zones (stored in zone metadata)
+        if not hasattr(zone, '_control_port'):
+            # Default ports for known shaders
+            default_ports = {
+                'LISSAJOUS': 9998,
+                'PLASMA': 9997,
+                'SPIRAL': 9996,
+                'WAVES': 9995,
+            }
+            zone._control_port = default_ports.get(zone_name.upper())
+
+        if subcmd == "port":
+            if len(args) < 3:
+                return ModeResult(message="Usage: shader ZONE port PORT")
+            try:
+                zone._control_port = int(args[2])
+                return ModeResult(message=f"Set control port {zone._control_port} for {zone_name}")
+            except ValueError:
+                return ModeResult(message=f"Invalid port: {args[2]}")
+
+        elif subcmd == "param":
+            if len(args) < 4:
+                return ModeResult(message="Usage: shader ZONE param PARAM VALUE")
+
+            if not zone._control_port:
+                return ModeResult(message=f"No control port set for {zone_name}. Use :shader {zone_name} port PORT")
+
+            param_name = args[2]
+            try:
+                param_value = float(args[3])
+            except ValueError:
+                return ModeResult(message=f"Invalid parameter value: {args[3]}")
+
+            # Send JSON command to control socket
+            import json
+            import socket
+            cmd = json.dumps({
+                "command": "set_param",
+                "param": param_name,
+                "value": param_value
+            })
+
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(1.0)
+                s.connect(('localhost', zone._control_port))
+                s.sendall(cmd.encode('utf-8') + b'\n')
+                # Read response
+                response = s.recv(1024).decode('utf-8').strip()
+                s.close()
+                return ModeResult(message=f"✓ {param_name}={param_value}")
+            except ConnectionRefusedError:
+                return ModeResult(message=f"Control port {zone._control_port} not listening. Shader running with --control-port?")
+            except Exception as e:
+                return ModeResult(message=f"Error: {e}")
+
+        elif subcmd == "info":
+            port_info = f" (port {zone._control_port})" if zone._control_port else " (no control port)"
+            return ModeResult(message=f"Zone: {zone_name}{port_info}")
+
+        else:
+            return ModeResult(message="Usage: shader ZONE param PARAM VALUE")
 
     def _cmd_zones(self, args: list[str]) -> ModeResult:
         """List all zones."""
