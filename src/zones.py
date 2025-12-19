@@ -482,8 +482,9 @@ class Zone:
 
         # Get visible lines based on scroll offset
         start = self.config.scroll_offset
+        total_lines = len(self._styled_content)
         # Clamp scroll offset to valid range
-        max_offset = max(0, len(self._styled_content) - content_h)
+        max_offset = max(0, total_lines - content_h)
         if start > max_offset:
             start = max_offset
             self.config.scroll_offset = start
@@ -494,12 +495,15 @@ class Zone:
         search_term = self.config.search_term
         search_lines = set(self.config.search_matches) if self.config.search_matches else set()
 
+        # Render content (leave 1 char on right for scrollbar if needed)
+        text_width = content_w - 1 if total_lines > content_h else content_w
+
         for row, styled_line in enumerate(visible_lines):
             line_num = start + row
             is_match_line = line_num in search_lines
 
             for col, sc in enumerate(styled_line):
-                if col >= content_w:
+                if col >= text_width:
                     break  # Line too long
 
                 if sc.char in (' ', '\t', '\n', '\r'):
@@ -512,6 +516,39 @@ class Zone:
                     bg = 6  # Cyan background for match lines
 
                 canvas.set(content_x + col, content_y + row, sc.char, fg=fg, bg=bg)
+
+        # Draw scroll indicator on right edge if content overflows
+        if total_lines > content_h:
+            self._render_scroll_indicator(canvas, content_x + content_w - 1,
+                                           content_y, content_h, start, total_lines)
+
+    def _render_scroll_indicator(self, canvas, x: int, y: int, height: int,
+                                  scroll_offset: int, total_lines: int) -> None:
+        """Render a scrollbar/position indicator on the right edge."""
+        # Calculate thumb position and size
+        # Thumb size: proportional to visible/total ratio, min 1 char
+        thumb_ratio = height / total_lines
+        thumb_size = max(1, int(height * thumb_ratio))
+
+        # Thumb position: based on scroll offset
+        scroll_range = total_lines - height
+        if scroll_range > 0:
+            scroll_ratio = scroll_offset / scroll_range
+            track_space = height - thumb_size
+            thumb_pos = int(scroll_ratio * track_space)
+        else:
+            thumb_pos = 0
+
+        # Draw the scrollbar
+        # Track character (light shade), Thumb character (full block)
+        TRACK = "░"  # Light shade
+        THUMB = "█"  # Full block
+
+        for row in range(height):
+            if thumb_pos <= row < thumb_pos + thumb_size:
+                canvas.set(x, y + row, THUMB, fg=7)  # White thumb
+            else:
+                canvas.set(x, y + row, TRACK, fg=0)  # Dark track
 
     @property
     def pager_line_count(self) -> int:
