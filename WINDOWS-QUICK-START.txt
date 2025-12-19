@@ -1,0 +1,62 @@
+=== WINDOWS GIT BASH - QUICK START ===
+
+Hey Windows tester! 👋
+
+You're testing the my-grid + atari-style shader integration.
+This brings live parametric animations into spatial canvas zones!
+
+WHAT WE BUILT:
+- Socket zones for Claude Code responses
+- Live shader visualizations (plasma, lissajous curves, etc.)
+- Auto-scroll for dynamic zones
+- Full spatial AI development workspace
+
+QUICK TEST (5 minutes):
+
+1. Clone repos:
+   cd ~/projects
+   git clone <my-grid-url> my-grid
+   git clone <atari-style-url> atari-style
+
+2. Setup atari-style:
+   cd ~/projects/atari-style
+   python -m venv venv
+   source venv/Scripts/activate
+   pip install -r requirements.txt
+
+3. Test shader output:
+   python -m atari_style.zone_mode plasma --width 40 --height 20 --fps 10
+   # You should see colorful animated plasma! Press Ctrl+C to stop
+
+4. Setup my-grid:
+   cd ~/projects/my-grid
+   pip install -r requirements.txt
+
+5. Test basic my-grid:
+   python mygrid.py
+   # Press 'q' to quit
+
+6. Test with server API:
+   python mygrid.py --server --port 8765
+   # In another terminal:
+   echo ":text Hello Windows!" | nc localhost 8765
+
+FULL GUIDE:
+See WINDOWS-ATARI-INTEGRATION-TEST.md for complete instructions!
+
+EXPECTED ISSUES ON WINDOWS:
+- PTY zones might not work (use PIPE zones instead)
+- Path formats need to be /c/Users/... in Git Bash
+- Some ANSI colors may not display in default terminal
+  (Use Windows Terminal for best results)
+
+WHAT TO REPORT:
+✅ What worked
+❌ What failed
+📸 Screenshots of shaders (if working!)
+🐛 Any error messages
+
+QUESTIONS?
+Check the full test guide: WINDOWS-ATARI-INTEGRATION-TEST.md
+
+Let's see those shaders running on Windows! 🎨🚀
