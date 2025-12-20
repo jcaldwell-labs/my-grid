@@ -298,6 +298,10 @@ class ZoneConfig:
     search_matches: list[int] = field(default_factory=list)  # Line numbers with matches
     search_index: int = 0         # Current match index
 
+    # For PTY zones
+    pty_scroll_offset: int = 0   # Scroll position in PTY history buffer
+    pty_auto_scroll: bool = True  # Auto-scroll to bottom on new output
+
     # Display options
     scroll: bool = True      # Auto-scroll to bottom on new content
     wrap: bool = False       # Wrap long lines
@@ -464,14 +468,26 @@ class Zone:
             return
 
         # Other dynamic zones: parse ANSI codes and render with colors
-        # Auto-scroll: show last N lines (newest content at bottom)
+        # PTY zones support scrollback, others auto-scroll
         total_lines = len(self._content_lines)
-        if total_lines > content_h:
-            # More content than fits - show last lines (auto-scroll)
-            visible_lines = self._content_lines[-content_h:]
+
+        if self.config.zone_type == ZoneType.PTY:
+            # PTY zones: Use scroll offset if set, otherwise auto-scroll
+            if self.config.pty_auto_scroll:
+                # Auto-scroll: show last N lines
+                start_line = max(0, total_lines - content_h)
+                visible_lines = self._content_lines[start_line:]
+            else:
+                # Manual scroll mode: use pty_scroll_offset
+                start_line = self.config.pty_scroll_offset
+                end_line = start_line + content_h
+                visible_lines = self._content_lines[start_line:end_line]
         else:
-            # All content fits
-            visible_lines = self._content_lines
+            # Other zones: auto-scroll
+            if total_lines > content_h:
+                visible_lines = self._content_lines[-content_h:]
+            else:
+                visible_lines = self._content_lines
 
         for row, line in enumerate(visible_lines):
             # Parse ANSI codes to preserve colors
@@ -1278,6 +1294,13 @@ class PTYHandler:
             content_h = zone.height - 2
             self._set_winsize(master_fd, content_h, content_w)
 
+            # Configure TTY for proper echo and line editing
+            attrs = termios.tcgetattr(master_fd)
+            attrs[3] |= termios.ECHO    # Enable echo
+            attrs[3] |= termios.ICANON  # Canonical mode (line editing)
+            attrs[3] |= termios.ISIG    # Signal chars (Ctrl+C, etc.)
+            termios.tcsetattr(master_fd, termios.TCSANOW, attrs)
+
             # Fork process
             pid = os.fork()
 
@@ -1302,10 +1325,12 @@ class PTYHandler:
                 env['TERM'] = 'xterm-256color'
                 env['COLUMNS'] = str(content_w)
                 env['LINES'] = str(content_h)
+                env['PS1'] = '$ '  # Simple prompt for better display
 
-                # Execute shell
+                # Execute shell in interactive mode
                 shell = zone.config.shell or '/bin/bash'
-                os.execvpe(shell, [shell], env)
+                # Add -i for interactive mode (enables echo and proper TTY behavior)
+                os.execvpe(shell, [shell, '-i'], env)
 
             else:
                 # Parent process

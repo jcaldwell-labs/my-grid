@@ -247,6 +247,15 @@ class Application:
 
         # Show PTY focus mode indicator
         if self._focused_pty:
+            zone = self.zone_manager.get(self._focused_pty)
+            if zone and zone.zone_type == ZoneType.PTY:
+                if zone.config.pty_auto_scroll:
+                    return f" [PTY] {self._focused_pty} - PgUp:scroll Esc:unfocus"
+                else:
+                    # In scroll mode
+                    total = len(zone._content_lines)
+                    line = zone.config.pty_scroll_offset + 1
+                    return f" [PTY SCROLL] {self._focused_pty} - Line {line}/{total} - Space:auto G:bottom Esc:unfocus"
             return f" [PTY] {self._focused_pty} - Press Esc to unfocus"
 
         # Show PAGER focus mode indicator
@@ -407,6 +416,9 @@ class Application:
                     if key == 27:  # Escape - unfocus PTY
                         self._focused_pty = None
                         self._show_message("PTY unfocused")
+                    elif self._handle_pty_scroll_keys(key):
+                        # Scroll key handled (PgUp/PgDn)
+                        continue
                     else:
                         # Forward key to PTY
                         self._forward_key_to_pty(key)
@@ -647,6 +659,76 @@ class Application:
             return  # Unknown key, don't forward
 
         self.pty_handler.send_input(self._focused_pty, data)
+
+    def _handle_pty_scroll_keys(self, key: int) -> bool:
+        """
+        Handle scroll keys when a PTY zone is focused.
+
+        Keys:
+            PgUp / u: Scroll up (enter scroll mode)
+            PgDn / d: Scroll down
+            g: Go to top
+            G: Go to bottom
+            Space: Return to auto-scroll mode
+
+        Returns:
+            True if key was a scroll key, False to forward to PTY
+        """
+        if not self._focused_pty:
+            return False
+
+        zone = self.zone_manager.get(self._focused_pty)
+        if not zone or zone.zone_type != ZoneType.PTY:
+            return False
+
+        # Only handle scroll keys, not all keys
+        if key not in (curses.KEY_PPAGE, curses.KEY_NPAGE, ord('u'), ord('d'),
+                       ord('g'), ord('G'), ord(' ')):
+            return False
+
+        total_lines = len(zone._content_lines)
+        content_h = zone.height - 2
+        max_offset = max(0, total_lines - content_h)
+        half_page = content_h // 2
+
+        # PgUp or u: Scroll up (disables auto-scroll)
+        if key == curses.KEY_PPAGE or key == ord('u'):
+            zone.config.pty_auto_scroll = False
+            zone.config.pty_scroll_offset = max(0, zone.config.pty_scroll_offset - half_page)
+            line = zone.config.pty_scroll_offset + 1
+            self._show_message(f"PTY scroll: line {line}/{total_lines}")
+            return True
+
+        # PgDn or d: Scroll down
+        elif key == curses.KEY_NPAGE or key == ord('d'):
+            zone.config.pty_auto_scroll = False
+            zone.config.pty_scroll_offset = min(max_offset, zone.config.pty_scroll_offset + half_page)
+            line = zone.config.pty_scroll_offset + 1
+            self._show_message(f"PTY scroll: line {line}/{total_lines}")
+            return True
+
+        # g: Go to top
+        elif key == ord('g'):
+            zone.config.pty_auto_scroll = False
+            zone.config.pty_scroll_offset = 0
+            self._show_message("PTY scroll: top")
+            return True
+
+        # G: Go to bottom (re-enable auto-scroll)
+        elif key == ord('G'):
+            zone.config.pty_auto_scroll = True
+            zone.config.pty_scroll_offset = 0
+            self._show_message("PTY scroll: bottom (auto-scroll on)")
+            return True
+
+        # Space: Return to auto-scroll mode
+        elif key == ord(' '):
+            zone.config.pty_auto_scroll = True
+            zone.config.pty_scroll_offset = 0
+            self._show_message("PTY auto-scroll enabled")
+            return True
+
+        return False
 
     def _handle_pager_key(self, key: int) -> bool:
         """
