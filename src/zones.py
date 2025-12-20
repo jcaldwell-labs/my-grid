@@ -1365,7 +1365,7 @@ class PTYHandler:
     def _pty_reader(self, zone: Zone, fd: int, stop_event: threading.Event) -> None:
         """Background thread that reads PTY output."""
         buffer = ""
-        last_incomplete_line_count = 0  # Track how many lines are incomplete
+        showing_incomplete = False
 
         while not stop_event.is_set():
             try:
@@ -1378,8 +1378,7 @@ class PTYHandler:
                 data = os.read(fd, 4096)
                 if not data:
                     # EOF - process exited
-                    # Flush any remaining buffer
-                    if buffer:
+                    if buffer.strip():
                         zone.append_content(buffer)
                     zone.append_content("[Process exited]")
                     break
@@ -1388,30 +1387,30 @@ class PTYHandler:
                 text = data.decode('utf-8', errors='replace')
                 buffer += text
 
-                # Process complete lines
-                lines = buffer.split('\n')
+                # Split on newlines
+                parts = buffer.split('\n')
 
-                # Remove previous incomplete line(s) if we had any
-                for _ in range(last_incomplete_line_count):
-                    if zone._content_lines:
-                        zone._content_lines.pop()
+                # Remove previous incomplete line if we had one
+                if showing_incomplete and zone._content_lines:
+                    zone._content_lines.pop()
+                    showing_incomplete = False
 
-                # Add all complete lines (everything with \n)
-                for line in lines[:-1]:
-                    # Keep ANSI codes for color rendering
-                    zone.append_content(line)
+                # Add all complete lines (everything except the last element)
+                for line in parts[:-1]:
+                    # Remove carriage returns
+                    clean_line = line.replace('\r', '')
+                    zone.append_content(clean_line)
 
-                # The last element is the incomplete line (or empty if ended with \n)
-                buffer = lines[-1]
+                # Keep the incomplete part in buffer
+                buffer = parts[-1]
 
-                # Add the incomplete line so it's visible (THIS IS THE KEY FIX!)
+                # Show the incomplete line (what you're currently typing!)
                 if buffer:
-                    zone.append_content(buffer)
-                    last_incomplete_line_count = 1
-                else:
-                    last_incomplete_line_count = 0
-
-                # Note: zone.append_content() already handles max_lines trimming
+                    # Don't show if it's just \r or whitespace
+                    display_buffer = buffer.replace('\r', '')
+                    if display_buffer:
+                        zone.append_content(display_buffer)
+                        showing_incomplete = True
 
             except OSError:
                 # FD closed or error
