@@ -251,13 +251,43 @@ Zones display with borders showing type indicator: `[P]` for pipe, `[W]` for wat
 
 ### PTY Focus Model (Unix/WSL only)
 
-PTY zones provide live interactive terminals:
+PTY zones provide live interactive terminals with full echo and scrollback support:
 
+**Basic Usage:**
 1. Create PTY zone: `:zone pty TERM 80 24`
 2. Navigate cursor into the zone
 3. Press **Enter** to focus (or use `:zone focus TERM`)
 4. All keystrokes go directly to the terminal
-5. Press **Escape** to unfocus and return to canvas navigation
+5. **NEW:** You can see what you're typing! (input echo works)
+6. Press **Escape** to unfocus and return to canvas navigation
+
+**Scrollback Navigation (NEW!):**
+
+When focused on a PTY zone, you can scroll through terminal history:
+
+| Key | Action |
+|-----|--------|
+| `PgUp` or `u` | Scroll up half page (enters scroll mode) |
+| `PgDn` or `d` | Scroll down half page |
+| `g` | Go to top of history |
+| `G` | Go to bottom (re-enables auto-scroll) |
+| `Space` | Return to auto-scroll mode |
+| `Esc` | Unfocus PTY |
+
+**Scroll Modes:**
+- **Auto-scroll** (default): Always shows latest output, scrolls automatically
+- **Manual scroll**: PgUp/u enters this mode, shows scroll position in status line
+- Press `G` or `Space` to return to auto-scroll
+
+**Status Line:**
+- Auto-scroll mode: `[PTY] TERM - PgUp:scroll Esc:unfocus`
+- Scroll mode: `[PTY SCROLL] TERM - Line 50/200 - Space:auto G:bottom Esc:unfocus`
+
+**Use Cases:**
+- Review command output that scrolled past
+- Copy error messages from history
+- Navigate through log files
+- Run interactive programs (vim, python REPL, Claude Code!)
 
 Note: PTY zones require Unix-like systems (Linux, macOS, WSL). Not available on native Windows.
 
