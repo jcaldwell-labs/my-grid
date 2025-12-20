@@ -1294,14 +1294,7 @@ class PTYHandler:
             content_h = zone.height - 2
             self._set_winsize(master_fd, content_h, content_w)
 
-            # Configure TTY for proper echo and line editing
-            attrs = termios.tcgetattr(master_fd)
-            attrs[3] |= termios.ECHO    # Enable echo
-            attrs[3] |= termios.ICANON  # Canonical mode (line editing)
-            attrs[3] |= termios.ISIG    # Signal chars (Ctrl+C, etc.)
-            termios.tcsetattr(master_fd, termios.TCSANOW, attrs)
-
-            # Fork process
+            # Fork process (don't set master attrs - let shell handle echo)
             pid = os.fork()
 
             if pid == 0:

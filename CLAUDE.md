@@ -267,21 +267,20 @@ When focused on a PTY zone, you can scroll through terminal history:
 
 | Key | Action |
 |-----|--------|
-| `PgUp` or `u` | Scroll up half page (enters scroll mode) |
-| `PgDn` or `d` | Scroll down half page |
-| `g` | Go to top of history |
-| `G` | Go to bottom (re-enables auto-scroll) |
-| `Space` | Return to auto-scroll mode |
+| `PgUp` | Scroll up half page (enters scroll mode) |
+| `PgDn` | Scroll down half page |
+| `Home` | Go to top of history |
+| `End` | Go to bottom (re-enables auto-scroll) |
 | `Esc` | Unfocus PTY |
 
 **Scroll Modes:**
 - **Auto-scroll** (default): Always shows latest output, scrolls automatically
-- **Manual scroll**: PgUp/u enters this mode, shows scroll position in status line
-- Press `G` or `Space` to return to auto-scroll
+- **Manual scroll**: PgUp enters this mode, shows scroll position in status line
+- Press `End` to return to auto-scroll
 
 **Status Line:**
 - Auto-scroll mode: `[PTY] TERM - PgUp:scroll Esc:unfocus`
-- Scroll mode: `[PTY SCROLL] TERM - Line 50/200 - Space:auto G:bottom Esc:unfocus`
+- Scroll mode: `[PTY SCROLL] TERM - 50/200 - End:auto Esc:unfocus`
 
 **Use Cases:**
 - Review command output that scrolled past

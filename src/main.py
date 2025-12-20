@@ -255,8 +255,8 @@ class Application:
                     # In scroll mode
                     total = len(zone._content_lines)
                     line = zone.config.pty_scroll_offset + 1
-                    return f" [PTY SCROLL] {self._focused_pty} - Line {line}/{total} - Space:auto G:bottom Esc:unfocus"
-            return f" [PTY] {self._focused_pty} - Press Esc to unfocus"
+                    return f" [PTY SCROLL] {self._focused_pty} - {line}/{total} - End:auto Esc:unfocus"
+            return f" [PTY] {self._focused_pty} - Esc:unfocus"
 
         # Show PAGER focus mode indicator
         if self._focused_pager:
@@ -664,12 +664,14 @@ class Application:
         """
         Handle scroll keys when a PTY zone is focused.
 
+        IMPORTANT: Only use special keys (PgUp/PgDn/Home/End) to avoid
+        conflicts with terminal input. Do NOT use letters like d, u, g, G!
+
         Keys:
-            PgUp / u: Scroll up (enter scroll mode)
-            PgDn / d: Scroll down
-            g: Go to top
-            G: Go to bottom
-            Space: Return to auto-scroll mode
+            PgUp: Scroll up half page (enters scroll mode)
+            PgDn: Scroll down half page
+            Home: Go to top of history
+            End: Go to bottom (re-enables auto-scroll)
 
         Returns:
             True if key was a scroll key, False to forward to PTY
@@ -681,9 +683,9 @@ class Application:
         if not zone or zone.zone_type != ZoneType.PTY:
             return False
 
-        # Only handle scroll keys, not all keys
-        if key not in (curses.KEY_PPAGE, curses.KEY_NPAGE, ord('u'), ord('d'),
-                       ord('g'), ord('G'), ord(' ')):
+        # ONLY use special keys - no letters!
+        if key not in (curses.KEY_PPAGE, curses.KEY_NPAGE,
+                       curses.KEY_HOME, curses.KEY_END):
             return False
 
         total_lines = len(zone._content_lines)
@@ -691,41 +693,34 @@ class Application:
         max_offset = max(0, total_lines - content_h)
         half_page = content_h // 2
 
-        # PgUp or u: Scroll up (disables auto-scroll)
-        if key == curses.KEY_PPAGE or key == ord('u'):
+        # PgUp: Scroll up half page (enters scroll mode)
+        if key == curses.KEY_PPAGE:
             zone.config.pty_auto_scroll = False
             zone.config.pty_scroll_offset = max(0, zone.config.pty_scroll_offset - half_page)
             line = zone.config.pty_scroll_offset + 1
-            self._show_message(f"PTY scroll: line {line}/{total_lines}")
+            self._show_message(f"PTY scroll: line {line}/{total_lines} | End:auto")
             return True
 
-        # PgDn or d: Scroll down
-        elif key == curses.KEY_NPAGE or key == ord('d'):
+        # PgDn: Scroll down half page
+        elif key == curses.KEY_NPAGE:
             zone.config.pty_auto_scroll = False
             zone.config.pty_scroll_offset = min(max_offset, zone.config.pty_scroll_offset + half_page)
             line = zone.config.pty_scroll_offset + 1
-            self._show_message(f"PTY scroll: line {line}/{total_lines}")
+            self._show_message(f"PTY scroll: line {line}/{total_lines} | End:auto")
             return True
 
-        # g: Go to top
-        elif key == ord('g'):
+        # Home: Go to top
+        elif key == curses.KEY_HOME:
             zone.config.pty_auto_scroll = False
             zone.config.pty_scroll_offset = 0
-            self._show_message("PTY scroll: top")
+            self._show_message("PTY scroll: top | End:auto")
             return True
 
-        # G: Go to bottom (re-enable auto-scroll)
-        elif key == ord('G'):
+        # End: Go to bottom (re-enable auto-scroll)
+        elif key == curses.KEY_END:
             zone.config.pty_auto_scroll = True
             zone.config.pty_scroll_offset = 0
-            self._show_message("PTY scroll: bottom (auto-scroll on)")
-            return True
-
-        # Space: Return to auto-scroll mode
-        elif key == ord(' '):
-            zone.config.pty_auto_scroll = True
-            zone.config.pty_scroll_offset = 0
-            self._show_message("PTY auto-scroll enabled")
+            self._show_message("PTY auto-scroll ON | PgUp:scroll")
             return True
 
         return False
