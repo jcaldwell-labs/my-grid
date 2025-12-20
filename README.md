@@ -335,9 +335,11 @@ See [CLAUDE.md](CLAUDE.md) for full integration patterns.
 
 ## 📚 Documentation
 
+- **[Documentation Hub](docs/README.md)** – Guides, tutorials, and examples
 - **[CLAUDE.md](CLAUDE.md)** – Complete command reference, architecture, API docs
-- **[demo/README.md](demo/README.md)** – Demo system for showcases and testing
-- **[examples/](examples/)** – Sample projects and layouts
+- **[Getting Started](docs/guides/getting-started.md)** – First steps with my-grid
+- **[Zones Reference](docs/guides/zones-reference.md)** – Complete guide to zone types
+- **[Demo System](demo/README.md)** – Demos and production deployment
 
 ---
 
