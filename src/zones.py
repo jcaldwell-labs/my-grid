@@ -1365,7 +1365,7 @@ class PTYHandler:
     def _pty_reader(self, zone: Zone, fd: int, stop_event: threading.Event) -> None:
         """Background thread that reads PTY output."""
         buffer = ""
-        content_h = zone.height - 2
+        last_incomplete_line_count = 0  # Track how many lines are incomplete
 
         while not stop_event.is_set():
             try:
@@ -1378,6 +1378,9 @@ class PTYHandler:
                 data = os.read(fd, 4096)
                 if not data:
                     # EOF - process exited
+                    # Flush any remaining buffer
+                    if buffer:
+                        zone.append_content(buffer)
                     zone.append_content("[Process exited]")
                     break
 
@@ -1387,11 +1390,26 @@ class PTYHandler:
 
                 # Process complete lines
                 lines = buffer.split('\n')
-                buffer = lines[-1]  # Keep incomplete line in buffer
 
+                # Remove previous incomplete line(s) if we had any
+                for _ in range(last_incomplete_line_count):
+                    if zone._content_lines:
+                        zone._content_lines.pop()
+
+                # Add all complete lines (everything with \n)
                 for line in lines[:-1]:
                     # Keep ANSI codes for color rendering
                     zone.append_content(line)
+
+                # The last element is the incomplete line (or empty if ended with \n)
+                buffer = lines[-1]
+
+                # Add the incomplete line so it's visible (THIS IS THE KEY FIX!)
+                if buffer:
+                    zone.append_content(buffer)
+                    last_incomplete_line_count = 1
+                else:
+                    last_incomplete_line_count = 0
 
                 # Note: zone.append_content() already handles max_lines trimming
 
