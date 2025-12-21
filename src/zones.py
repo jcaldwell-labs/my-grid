@@ -1237,11 +1237,13 @@ try:
     import termios
     import select
     import pty
+    from .pty_screen import PTYScreen
     PTY_AVAILABLE = True
 except ImportError:
     fcntl = None
     termios = None
     select = None
+    PTYScreen = None
     PTY_AVAILABLE = False
 
 
@@ -1334,7 +1336,6 @@ class PTYHandler:
                 fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
                 # Create pyte terminal emulator screen
-                from .pty_screen import PTYScreen
                 screen = PTYScreen(content_w, content_h, history=1000)
 
                 # Start reader thread with pyte screen
@@ -1380,7 +1381,6 @@ class PTYHandler:
             stop_event: Threading event for shutdown
             screen: PTYScreen instance for terminal emulation
         """
-        from .pty_screen import PTYScreen
 
         while not stop_event.is_set():
             try:
