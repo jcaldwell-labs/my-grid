@@ -413,6 +413,10 @@ class Application:
 
                 # If PTY is focused, forward input to PTY
                 if self._focused_pty:
+                    # DEBUG: Show key code for Enter debugging
+                    if key == 10 or key == 13 or key == curses.KEY_ENTER:
+                        self._show_message(f"DEBUG: Enter key={key} (10=\\n, 13=\\r, {curses.KEY_ENTER}=KEY_ENTER)", frames=180)
+
                     if key == 27:  # Escape - unfocus PTY
                         self._focused_pty = None
                         self._show_message("PTY unfocused")
