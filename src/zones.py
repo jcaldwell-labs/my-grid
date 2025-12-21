@@ -1333,11 +1333,15 @@ class PTYHandler:
                 flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
                 fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
-                # Start reader thread
+                # Create pyte terminal emulator screen
+                from .pty_screen import PTYScreen
+                screen = PTYScreen(content_w, content_h, history=1000)
+
+                # Start reader thread with pyte screen
                 stop_event = threading.Event()
                 reader_thread = threading.Thread(
-                    target=self._pty_reader,
-                    args=(zone, master_fd, stop_event),
+                    target=self._pty_reader_pyte,
+                    args=(zone, master_fd, stop_event, screen),
                     daemon=True,
                     name=f"pty-{key}"
                 )
@@ -1347,7 +1351,8 @@ class PTYHandler:
                         'fd': master_fd,
                         'pid': pid,
                         'thread': reader_thread,
-                        'stop_event': stop_event
+                        'stop_event': stop_event,
+                        'screen': screen  # Store pyte screen
                     }
 
                 reader_thread.start()
@@ -1362,8 +1367,72 @@ class PTYHandler:
         winsize = struct.pack('HHHH', rows, cols, 0, 0)
         fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
 
+    def _pty_reader_pyte(self, zone: Zone, fd: int, stop_event: threading.Event,
+                          screen) -> None:
+        """Background thread that reads PTY output using pyte terminal emulator.
+
+        This is the NEW implementation using proper terminal emulation.
+        Handles all cursor control, backspace, escape sequences correctly.
+
+        Args:
+            zone: Zone to update
+            fd: PTY master file descriptor
+            stop_event: Threading event for shutdown
+            screen: PTYScreen instance for terminal emulation
+        """
+        from .pty_screen import PTYScreen
+
+        while not stop_event.is_set():
+            try:
+                # Use select with faster timeout for responsive updates
+                readable, _, _ = select.select([fd], [], [], 0.05)
+
+                if not readable:
+                    continue
+
+                # Read data from PTY
+                data = os.read(fd, 4096)
+                if not data:
+                    # EOF - process exited
+                    # Get final screen state
+                    final_lines = screen.get_display_lines(scroll_offset=0)
+                    zone.set_content(final_lines + ["[Process exited]"])
+                    break
+
+                # Decode and feed to pyte (handles ALL terminal sequences!)
+                text = data.decode('utf-8', errors='replace')
+                screen.feed(text)
+
+                # Get current display from pyte screen
+                if zone.config.pty_auto_scroll:
+                    # Show current screen (normal mode)
+                    lines = screen.get_display_lines(scroll_offset=0)
+                else:
+                    # Show scrolled view
+                    lines = screen.get_display_lines(scroll_offset=zone.config.pty_scroll_offset)
+
+                # Update zone content (full replacement, not append!)
+                # This is key: pyte maintains the screen state, we just display it
+                zone.set_content(lines)
+
+            except OSError:
+                # FD closed or error
+                break
+            except Exception as e:
+                # On error, try to preserve screen state
+                try:
+                    lines = screen.get_display_lines(scroll_offset=0)
+                    zone.set_content(lines + [f"[PTY error: {e}]"])
+                except:
+                    zone.set_content([f"[PTY error: {e}]"])
+                break
+
     def _pty_reader(self, zone: Zone, fd: int, stop_event: threading.Event) -> None:
-        """Background thread that reads PTY output."""
+        """OLD: Line-based PTY reader (DEPRECATED - kept for reference).
+
+        This old implementation doesn't work for interactive apps.
+        Use _pty_reader_pyte instead.
+        """
         buffer = ""
         showing_incomplete = False
 
@@ -1418,6 +1487,23 @@ class PTYHandler:
             except Exception as e:
                 zone.append_content(f"[Read error: {e}]")
                 break
+
+    def get_screen(self, name: str):
+        """
+        Get pyte screen for a PTY zone (if using pyte).
+
+        Args:
+            name: Zone name
+
+        Returns:
+            PTYScreen instance or None
+        """
+        key = name.lower()
+        with self._lock:
+            data = self._pty_data.get(key)
+            if data:
+                return data.get('screen')
+        return None
 
     def _strip_ansi(self, text: str) -> str:
         """Strip ANSI escape sequences from text (basic implementation)."""
