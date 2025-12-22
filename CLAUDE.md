@@ -189,6 +189,7 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 | PIPE | One-shot command output | `:zone pipe NAME W H CMD` |
 | WATCH | Periodic refresh command | `:zone watch NAME W H INTERVAL CMD` |
 | PTY | Live terminal session (Unix) | `:zone pty NAME W H [SHELL]` |
+| PAGER | Paginated file viewer with colors | `:zone pager NAME W H FILE` |
 | FIFO | Named pipe listener (Unix) | `:zone fifo NAME W H PATH` |
 | SOCKET | TCP port listener | `:zone socket NAME W H PORT` |
 | CLIPBOARD | Yank/paste buffer | `:clipboard zone` |
@@ -247,21 +248,27 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 # Then from another terminal: echo "Hello" | nc localhost 9876
 ```
 
-Zones display with borders showing type indicator: `[P]` for pipe, `[W]` for watch, `[T]` for PTY, `[F]` for FIFO, `[S]` for socket, etc.
+Zones display with borders showing type indicator: `[P]` for pipe, `[W]` for watch, `[T]` for PTY, `[R]` for pager (reader), `[F]` for FIFO, `[S]` for socket, `[C]` for clipboard.
 
 ### PTY Focus Model (Unix/WSL only)
 
-PTY zones provide live interactive terminals with full echo and scrollback support:
+PTY zones provide live interactive terminals with full echo, ANSI color support, and scrollback:
 
 **Basic Usage:**
 1. Create PTY zone: `:zone pty TERM 80 24`
 2. Navigate cursor into the zone
 3. Press **Enter** to focus (or use `:zone focus TERM`)
 4. All keystrokes go directly to the terminal
-5. **NEW:** You can see what you're typing! (input echo works)
+5. Input echo works - you can see what you're typing!
 6. Press **Escape** to unfocus and return to canvas navigation
 
-**Scrollback Navigation (NEW!):**
+**Terminal Emulation:**
+- Full VT100/ANSI terminal emulation via `pyte`
+- ANSI color support (foreground/background, 256-color palette mapped to 8 colors)
+- Cursor control, backspace, escape sequences all work
+- Run any terminal program: bash, vim, python REPL, Claude Code, etc.
+
+**Scrollback Navigation:**
 
 When focused on a PTY zone, you can scroll through terminal history:
 
@@ -282,11 +289,18 @@ When focused on a PTY zone, you can scroll through terminal history:
 - Auto-scroll mode: `[PTY] TERM - PgUp:scroll Esc:unfocus`
 - Scroll mode: `[PTY SCROLL] TERM - 50/200 - End:auto Esc:unfocus`
 
+**Color Support:**
+- ANSI colors display correctly (foreground and background)
+- 256-color palette supported (mapped to basic 8 colors)
+- Colors preserved on current screen
+- Note: Scrollback history (from `pyte` limitations) shows plain text without colors
+
 **Use Cases:**
 - Review command output that scrolled past
 - Copy error messages from history
 - Navigate through log files
-- Run interactive programs (vim, python REPL, Claude Code!)
+- Run interactive programs with full color support
+- Run nested instances of Claude Code inside my-grid!
 
 Note: PTY zones require Unix-like systems (Linux, macOS, WSL). Not available on native Windows.
 
@@ -666,9 +680,57 @@ zones:
 
 Load with: `:layout load claude-code`
 
+### Pattern 5: Meta-Inception - Claude Code Inside my-grid
+
+Run Claude Code directly inside a my-grid PTY zone for the ultimate meta-development experience:
+
+**Setup:**
+```bash
+# Start my-grid with server mode
+python3 mygrid.py --server --layout pty-test
+
+# Jump to Claude PTY zone and focus it
+# Press 'c (bookmark) then Enter (focus)
+
+# Start Claude Code inside the zone
+claude
+```
+
+**What You Get:**
+- Claude Code's full TUI running inside my-grid
+- Full color support for Claude's interface
+- Scrollback through Claude's responses (PgUp/PgDn)
+- Multiple PTY zones for parallel Claude sessions
+- README/docs visible alongside Claude
+
+**Use Cases:**
+- Ask Claude to help develop my-grid itself (meta!)
+- View documentation while chatting with Claude
+- Multiple Claude contexts in different zones
+- Compare responses from different Claude sessions side-by-side
+
+**Tips:**
+- Use `Esc` to unfocus PTY and navigate my-grid
+- Press `'c` to quickly jump back to Claude zone
+- Scrollback works - review Claude's previous responses with `PgUp`
+- Colors work - Claude's syntax highlighting displays correctly
+- Run bash commands in a separate PTY zone while Claude is running
+
+**Meta-Development Workflow:**
+```
+┌──────────────┬──────────────┐
+│   README     │  BASH shell  │
+│  (reference) │ (run tests)  │
+├──────────────┼──────────────┤
+│ CLAUDE CODE  │              │
+│ (AI assist)  │              │
+└──────────────┴──────────────┘
+```
+
 ### Integration Tips
 
 1. **WSL + Windows**: Socket zones work across the WSL boundary - run my-grid in WSL, connect from Windows
 2. **Multiple zones**: Create separate zones for different Claude tools or contexts
 3. **Bookmarks**: Use bookmarks for quick navigation between Claude output and your work areas
 4. **Persistence**: Layouts preserve your integration setup across sessions
+5. **Meta-inception**: Run Claude Code inside PTY zones to develop my-grid with Claude's help!
