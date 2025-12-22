@@ -1,0 +1,73 @@
+# [Project Name]
+
+> One-line description of what this project does
+
+## What is [Project Name]?
+
+[2-3 sentence explanation of the project, its purpose, and key benefits]
+
+## Key Capabilities
+
+- **[Capability 1]**: [Brief description]
+- **[Capability 2]**: [Brief description]
+- **[Capability 3]**: [Brief description]
+- **[Capability 4]**: [Brief description]
+- **[Capability 5]**: [Brief description]
+
+## Quick Start
+
+```bash
+# Installation
+[install-command]
+
+# Basic usage
+[usage-command]
+```
+
+## Common Commands
+
+```
+[command-1]        # [What it does]
+[command-2]        # [What it does]
+[command-3]        # [What it does]
+[command-4]        # [What it does]
+```
+
+## Use Cases
+
+1. **[Use Case 1]**: [Description of when/why to use this]
+2. **[Use Case 2]**: [Description of when/why to use this]
+3. **[Use Case 3]**: [Description of when/why to use this]
+4. **[Use Case 4]**: [Description of when/why to use this]
+
+## Architecture
+
+[Brief overview of how the project is structured. 2-3 sentences covering:]
+- Core components
+- How they interact
+- Key design decisions
+
+## Integration
+
+[If applicable, how this integrates with other tools]
+
+**Example:**
+```bash
+# Integration example
+[integration-command]
+```
+
+## Documentation
+
+- README.md - Project overview and quick start
+- docs/guides/ - User guides and references
+- docs/tutorials/ - Step-by-step tutorials
+- docs/examples/ - Real-world examples
+
+## Repository
+
+https://github.com/jcaldwell-labs/[project-name]
+
+## License
+
+[License Type - e.g., MIT]
