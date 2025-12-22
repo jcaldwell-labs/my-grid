@@ -1,0 +1,63 @@
+# my-grid
+
+> A spatial canvas editor for terminals - infinite 2D workspace with vim-style navigation
+
+## What is my-grid?
+
+my-grid transforms your terminal into an infinite ASCII canvas where you can draw, diagram, and organize information spatially. Unlike traditional linear terminals, my-grid gives you a 2D coordinate space with vim-style navigation and modal editing.
+
+## Key Capabilities
+
+- **Infinite Canvas**: Sparse storage allows unlimited 2D space for ASCII art, diagrams, and notes
+- **Dynamic Zones**: Embed live terminals (PTY), auto-refreshing commands (watch), and network listeners (socket/FIFO) anywhere on the canvas
+- **Vim-Style Navigation**: Modal editing (NAV, EDIT, PAN, VISUAL, DRAW) with bookmarks for quick spatial navigation
+- **Workspace Layouts**: Save and load zone configurations as YAML templates
+- **API Server**: Control my-grid from external processes via TCP or Unix FIFO
+
+## Quick Start
+
+```bash
+pip install -r requirements.txt
+python mygrid.py
+```
+
+## Common Commands
+
+```
+:zone watch DISK 40 10 30s df -h      # Auto-refreshing disk usage
+:zone pty TERM 80 24                  # Live interactive terminal
+:layout load devops                   # Load DevOps monitoring workspace
+:rect 20 10                           # Draw rectangle
+:text Hello World                     # Write text
+```
+
+## Use Cases
+
+1. **DevOps Dashboards**: Monitor logs, disk usage, git status in spatial view
+2. **System Administration**: Live terminals + monitoring + notes in one workspace
+3. **ASCII Diagramming**: Draw flowcharts, network diagrams, UI mockups
+4. **Development Workspaces**: Organize code, terminals, and documentation spatially
+
+## Architecture
+
+Built with Python and curses. Sparse canvas storage (dict), coordinate transforms, modal state machine, zone management system.
+
+## Integration
+
+**API Server**: `python mygrid.py --server --port 8765`
+**Control**: `echo ':rect 10 5' | nc localhost 8765`
+**AI Integration**: Socket zones for Claude Code, ChatGPT, or other assistants
+
+## Documentation
+
+- README.md - Installation, features, examples
+- CLAUDE.md - Complete command reference and architecture
+- demo/README.md - Demo system
+
+## Repository
+
+https://github.com/jcaldwell-labs/my-grid
+
+## License
+
+MIT
