@@ -653,6 +653,7 @@ class Application:
             data = '\x1b[F'
         elif key == 10 or key == 13:  # Enter
             data = '\n'
+            self._show_message(f"DEBUG: Sending Enter (\\n) to PTY", frames=120)
         elif key == 9:  # Tab
             data = '\t'
         elif 1 <= key <= 26:  # Ctrl+A through Ctrl+Z
@@ -662,7 +663,9 @@ class Application:
         else:
             return  # Unknown key, don't forward
 
-        self.pty_handler.send_input(self._focused_pty, data)
+        success = self.pty_handler.send_input(self._focused_pty, data)
+        if key == 10 or key == 13:  # Debug Enter specifically
+            self._show_message(f"DEBUG: send_input returned {success}", frames=120)
 
     def _handle_pty_scroll_keys(self, key: int) -> bool:
         """
