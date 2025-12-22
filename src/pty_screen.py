@@ -7,6 +7,52 @@ sequences, and provides scrollback history.
 
 import pyte
 from typing import Optional
+from dataclasses import dataclass
+
+
+@dataclass
+class StyledChar:
+    """A character with color information from pyte terminal."""
+    char: str
+    fg: int = -1  # Foreground color (-1 = default, 0-7 = colors)
+    bg: int = -1  # Background color (-1 = default, 0-7 = colors)
+
+
+def _map_pyte_color(pyte_color: str) -> int:
+    """
+    Map pyte color to my-grid 8-color palette (0-7).
+
+    pyte uses color names like 'default', 'black', 'red', etc.
+    We map these to 0-7 for curses.
+
+    Returns:
+        Color code 0-7, or -1 for default
+    """
+    if not pyte_color or pyte_color == 'default':
+        return -1
+
+    color_map = {
+        'black': 0,
+        'red': 1,
+        'green': 2,
+        'yellow': 3,
+        'blue': 4,
+        'magenta': 5,
+        'cyan': 6,
+        'white': 7,
+    }
+
+    # Handle basic colors
+    if pyte_color in color_map:
+        return color_map[pyte_color]
+
+    # Handle bright variants (map to same basic color for 8-color mode)
+    if pyte_color.startswith('bright'):
+        base_color = pyte_color.replace('bright', '').strip()
+        return color_map.get(base_color, -1)
+
+    # Unknown color - use default
+    return -1
 
 
 class PTYScreen:
@@ -45,7 +91,9 @@ class PTYScreen:
 
     def get_display_lines(self, scroll_offset: int = 0) -> list[str]:
         """
-        Get current display lines with optional scrollback.
+        Get current display lines with optional scrollback (plain text).
+
+        DEPRECATED: Use get_display_lines_styled() for color support.
 
         Args:
             scroll_offset: Lines to scroll back from bottom
@@ -61,6 +109,25 @@ class PTYScreen:
         else:
             # Scrolled back into history
             return self._get_scrolled_screen(scroll_offset)
+
+    def get_display_lines_styled(self, scroll_offset: int = 0) -> list[list[StyledChar]]:
+        """
+        Get current display lines with colors and optional scrollback.
+
+        Args:
+            scroll_offset: Lines to scroll back from bottom
+                          0 = current screen (default)
+                          N = scroll back N lines into history
+
+        Returns:
+            List of lines, each line is a list of StyledChar with color info
+        """
+        if scroll_offset == 0:
+            # Current screen - most common case
+            return self._get_current_screen_styled()
+        else:
+            # Scrolled back into history
+            return self._get_scrolled_screen_styled(scroll_offset)
 
     def _get_current_screen(self) -> list[str]:
         """Get current screen display."""
@@ -85,6 +152,48 @@ class PTYScreen:
 
         # Combine: history + current
         all_lines = history_lines + current_lines
+
+        # Calculate which lines to show
+        total = len(all_lines)
+        start = max(0, total - self.height - scroll_offset)
+        end = start + self.height
+
+        return all_lines[start:end]
+
+    def _get_current_screen_styled(self) -> list[list[StyledChar]]:
+        """Get current screen display with color information."""
+        lines = []
+        for y in range(self.height):
+            line_chars = []
+            for x in range(self.width):
+                char_obj = self.screen.buffer[y][x]
+                # Extract character and colors from pyte Char object
+                fg = _map_pyte_color(char_obj.fg)
+                bg = _map_pyte_color(char_obj.bg)
+                line_chars.append(StyledChar(char_obj.data, fg, bg))
+            lines.append(line_chars)
+        return lines
+
+    def _get_scrolled_screen_styled(self, scroll_offset: int) -> list[list[StyledChar]]:
+        """Get screen display scrolled back into history with colors."""
+        # Note: pyte history stores plain text, not styled characters
+        # So scrolled-back content won't have colors (pyte limitation)
+        # For now, convert plain text history to StyledChar with default colors
+
+        # Get history lines (plain strings)
+        history_lines = list(self.screen.history.top)
+
+        # Convert history to styled format (no colors)
+        styled_history = []
+        for line in history_lines:
+            styled_line = [StyledChar(ch, -1, -1) for ch in line.ljust(self.width)]
+            styled_history.append(styled_line)
+
+        # Get current screen with colors
+        current_styled = self._get_current_screen_styled()
+
+        # Combine: history + current
+        all_lines = styled_history + current_styled
 
         # Calculate which lines to show
         total = len(all_lines)

@@ -467,6 +467,11 @@ class Zone:
             self._render_pager_content(canvas, content_x, content_y, content_w, content_h)
             return
 
+        # PTY zones with styled content (pyte colors) - render directly
+        if self.config.zone_type == ZoneType.PTY and self._styled_content:
+            self._render_pty_styled_content(canvas, content_x, content_y, content_w, content_h)
+            return
+
         # Other dynamic zones: parse ANSI codes and render with colors
         # PTY zones support scrollback, others auto-scroll
         total_lines = len(self._content_lines)
@@ -501,6 +506,28 @@ class Zone:
                     fg = sc.fg if sc.fg >= 0 else -1
                     bg = sc.bg if sc.bg >= 0 else -1
                     canvas.set(content_x + col, content_y + row, sc.char, fg=fg, bg=bg)
+
+    def _render_pty_styled_content(self, canvas, content_x: int, content_y: int,
+                                    content_w: int, content_h: int) -> None:
+        """Render PTY zone with styled content from pyte (with colors)."""
+        if not self._styled_content:
+            return
+
+        # PTY styled content is already at the correct scroll offset
+        # (handled by pyte when we call get_display_lines_styled)
+        visible_lines = self._styled_content[:content_h]
+
+        for row, styled_line in enumerate(visible_lines):
+            for col, sc in enumerate(styled_line):
+                if col >= content_w:
+                    break  # Line too long
+
+                # Skip whitespace characters (but render them if they have background color)
+                if sc.char in (' ', '\t', '\n', '\r') and sc.bg == -1:
+                    continue
+
+                # Render character with pyte colors
+                canvas.set(content_x + col, content_y + row, sc.char, fg=sc.fg, bg=sc.bg)
 
     def _render_pager_content(self, canvas, content_x: int, content_y: int,
                                content_w: int, content_h: int) -> None:
@@ -1415,26 +1442,29 @@ class PTYHandler:
                 data = os.read(fd, 4096)
                 if not data:
                     # EOF - process exited
-                    # Get final screen state
-                    final_lines = screen.get_display_lines(scroll_offset=0)
-                    zone.set_content(final_lines + ["[Process exited]"])
+                    # Get final screen state WITH COLORS
+                    final_styled = screen.get_display_lines_styled(scroll_offset=0)
+                    # Add exit message as plain text line
+                    from src.pty_screen import StyledChar
+                    exit_line = [StyledChar(ch, -1, -1) for ch in "[Process exited]"]
+                    zone.set_styled_content(final_styled + [exit_line])
                     break
 
                 # Decode and feed to pyte (handles ALL terminal sequences!)
                 text = data.decode('utf-8', errors='replace')
                 screen.feed(text)
 
-                # Get current display from pyte screen
+                # Get current display from pyte screen WITH COLORS
                 if zone.config.pty_auto_scroll:
                     # Show current screen (normal mode)
-                    lines = screen.get_display_lines(scroll_offset=0)
+                    styled_lines = screen.get_display_lines_styled(scroll_offset=0)
                 else:
                     # Show scrolled view
-                    lines = screen.get_display_lines(scroll_offset=zone.config.pty_scroll_offset)
+                    styled_lines = screen.get_display_lines_styled(scroll_offset=zone.config.pty_scroll_offset)
 
-                # Update zone content (full replacement, not append!)
+                # Update zone content with styled characters (colors preserved!)
                 # This is key: pyte maintains the screen state, we just display it
-                zone.set_content(lines)
+                zone.set_styled_content(styled_lines)
 
             except OSError:
                 # FD closed or error
@@ -1442,10 +1472,16 @@ class PTYHandler:
             except Exception as e:
                 # On error, try to preserve screen state
                 try:
-                    lines = screen.get_display_lines(scroll_offset=0)
-                    zone.set_content(lines + [f"[PTY error: {e}]"])
+                    from src.pty_screen import StyledChar
+                    styled_lines = screen.get_display_lines_styled(scroll_offset=0)
+                    error_msg = f"[PTY error: {e}]"
+                    error_line = [StyledChar(ch, 1, -1) for ch in error_msg]  # Red text
+                    zone.set_styled_content(styled_lines + [error_line])
                 except:
-                    zone.set_content([f"[PTY error: {e}]"])
+                    from src.pty_screen import StyledChar
+                    error_msg = f"[PTY error: {e}]"
+                    error_line = [StyledChar(ch, 1, -1) for ch in error_msg]
+                    zone.set_styled_content([error_line])
                 break
 
     def _pty_reader(self, zone: Zone, fd: int, stop_event: threading.Event) -> None:
