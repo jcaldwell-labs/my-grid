@@ -1702,10 +1702,21 @@ class Application:
             if len(args) < 2:
                 return ModeResult(message="Usage: zone delete NAME")
             name = args[1]
-            if self.zone_manager.delete(name):
-                self.project.mark_dirty()
-                return ModeResult(message=f"Deleted zone '{name}'")
-            return ModeResult(message=f"Zone '{name}' not found")
+
+            # Get zone before deleting to clear its canvas region
+            zone = self.zone_manager.get(name)
+            if zone is None:
+                return ModeResult(message=f"Zone '{name}' not found")
+
+            # Clear canvas cells in zone's region
+            for y in range(zone.y, zone.y + zone.height):
+                for x in range(zone.x, zone.x + zone.width):
+                    self.canvas.clear(x, y)
+
+            # Now delete the zone
+            self.zone_manager.delete(name)
+            self.project.mark_dirty()
+            return ModeResult(message=f"Deleted zone '{name}'")
 
         # :zone goto NAME
         elif subcmd == "goto":
