@@ -1337,21 +1337,39 @@ class PTYHandler:
 
                 # Create pyte terminal emulator screen
                 # Import here to avoid module-level import issues
-                if PTYScreen is None:
-                    from src.pty_screen import PTYScreen as PTYScreenClass
-                else:
-                    PTYScreenClass = PTYScreen
+                try:
+                    if PTYScreen is None:
+                        from src.pty_screen import PTYScreen as PTYScreenClass
+                    else:
+                        PTYScreenClass = PTYScreen
 
-                screen = PTYScreenClass(content_w, content_h, history=1000)
+                    screen = PTYScreenClass(content_w, content_h, history=1000)
+                    zone.append_content(f"[PTY: Using pyte terminal emulator - {content_w}x{content_h}]")
+                except ImportError as e:
+                    zone.set_content([f"[PTY: pyte import failed - {e}]", "[Falling back to line-based mode]"])
+                    screen = None  # Will use old reader
+                except Exception as e:
+                    zone.set_content([f"[PTY: pyte initialization failed - {e}]"])
+                    screen = None
 
-                # Start reader thread with pyte screen
+                # Start reader thread (use pyte if available, else fallback)
                 stop_event = threading.Event()
-                reader_thread = threading.Thread(
-                    target=self._pty_reader_pyte,
-                    args=(zone, master_fd, stop_event, screen),
-                    daemon=True,
-                    name=f"pty-{key}"
-                )
+                if screen is not None:
+                    # Use pyte terminal emulator
+                    reader_thread = threading.Thread(
+                        target=self._pty_reader_pyte,
+                        args=(zone, master_fd, stop_event, screen),
+                        daemon=True,
+                        name=f"pty-{key}"
+                    )
+                else:
+                    # Fallback to old line-based reader
+                    reader_thread = threading.Thread(
+                        target=self._pty_reader,
+                        args=(zone, master_fd, stop_event),
+                        daemon=True,
+                        name=f"pty-{key}"
+                    )
 
                 with self._lock:
                     self._pty_data[key] = {
