@@ -1336,12 +1336,9 @@ class PTYHandler:
                 fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
                 # Create pyte terminal emulator screen
-                # Import here to avoid module-level import issues
                 try:
-                    if PTYScreen is None:
-                        from src.pty_screen import PTYScreen as PTYScreenClass
-                    else:
-                        PTYScreenClass = PTYScreen
+                    # Use relative import since we're inside src package
+                    from pty_screen import PTYScreen as PTYScreenClass
 
                     screen = PTYScreenClass(content_w, content_h, history=1000)
                     zone.append_content(f"[PTY: Using pyte terminal emulator - {content_w}x{content_h}]")

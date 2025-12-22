@@ -652,8 +652,8 @@ class Application:
         elif key == curses.KEY_END:
             data = '\x1b[F'
         elif key == 10 or key == 13:  # Enter
-            data = '\n'
-            self._show_message(f"DEBUG: Sending Enter (\\n) to PTY", frames=120)
+            data = '\r'  # Use carriage return instead of newline for PTY
+            self._show_message(f"DEBUG: Sending Enter (\\r) to PTY", frames=120)
         elif key == 9:  # Tab
             data = '\t'
         elif 1 <= key <= 26:  # Ctrl+A through Ctrl+Z
