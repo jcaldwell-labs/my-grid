@@ -52,6 +52,10 @@ class Action(Enum):
     BACKSPACE = auto()
     NEWLINE = auto()
 
+    # History
+    UNDO = auto()
+    REDO = auto()
+
     # File operations
     SAVE = auto()
     SAVE_AS = auto()
@@ -270,6 +274,10 @@ class InputHandler:
             KeyBinding(K_BACKSPACE, 0, Action.BACKSPACE),
             KeyBinding(K_RETURN, 0, Action.NEWLINE),
             KeyBinding(K_KP_ENTER, 0, Action.NEWLINE),
+
+            # History (undo/redo)
+            KeyBinding(K_z, KMOD_CTRL, Action.UNDO),
+            KeyBinding(K_r, KMOD_CTRL, Action.REDO),
 
             # File operations
             KeyBinding(K_s, KMOD_CTRL, Action.SAVE),

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from canvas import Canvas, parse_color, COLOR_NUMBERS
 from viewport import Viewport
+from undo import UndoManager
 from renderer import Renderer, GridSettings, GridLineMode, create_status_line
 from input import InputHandler, Action, InputEvent
 from modes import Mode, ModeConfig, ModeStateMachine, ModeResult
@@ -67,6 +68,7 @@ class Application:
         self.fifo_handler = FIFOHandler(self.zone_manager)
         self.socket_handler = SocketHandler(self.zone_manager)
         self.session_manager = SessionManager()
+        self.undo_manager = UndoManager(max_history=100)
 
         # Install default layouts on first run
         install_default_layouts()
@@ -145,6 +147,9 @@ class Application:
         self.state_machine.register_command("palette", self._cmd_palette)
         self.state_machine.register_command("draw", self._cmd_draw)
         self.state_machine.register_command("shader", self._cmd_shader)
+        self.state_machine.register_command("undo", self._cmd_undo)
+        self.state_machine.register_command("redo", self._cmd_redo)
+        self.state_machine.register_command("history", self._cmd_history)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -487,6 +492,12 @@ class Application:
                     self._show_message(
                         f"Origin marker: {'ON' if self.renderer.grid.show_origin else 'OFF'}"
                     )
+
+                # Handle undo/redo
+                if event.action == Action.UNDO:
+                    self._do_undo()
+                elif event.action == Action.REDO:
+                    self._do_redo()
 
                 # Handle file operations
                 if event.action == Action.SAVE:
@@ -1040,7 +1051,26 @@ class Application:
         self.state_machine.bookmarks.clear()
         self.zone_manager.clear()
         self.project = Project()
+        self.undo_manager.clear()  # Clear undo history for new canvas
         self._show_message("New canvas created")
+
+    def _do_undo(self) -> None:
+        """Undo the last canvas operation."""
+        desc = self.undo_manager.undo(self.canvas)
+        if desc:
+            self._show_message(f"Undo: {desc}")
+            self.project.mark_dirty()
+        else:
+            self._show_message("Nothing to undo")
+
+    def _do_redo(self) -> None:
+        """Redo the last undone operation."""
+        desc = self.undo_manager.redo(self.canvas)
+        if desc:
+            self._show_message(f"Redo: {desc}")
+            self.project.mark_dirty()
+        else:
+            self._show_message("Nothing to redo")
 
     def _show_help(self) -> None:
         """Show help screen with multiple pages."""
@@ -1073,6 +1103,11 @@ class Application:
   BOOKMARKS:
     m + key       - Set mark (a-z, 0-9)    ' + key   - Jump to mark
     :marks        - List all marks         :delmark X - Delete mark X
+
+  UNDO/REDO:
+    u / Ctrl+Z    - Undo last operation    Ctrl+R    - Redo
+    :undo         - Undo via command       :redo     - Redo via command
+    :history      - Show operation history
 
   DRAWING:
     D / :draw     - Enter line draw mode   :border STYLE - Set line style
@@ -2311,6 +2346,57 @@ class Application:
 
         else:
             return ModeResult(message="Usage: shader ZONE param PARAM VALUE")
+
+    def _cmd_undo(self, args: list[str]) -> ModeResult:
+        """Undo the last canvas operation.
+
+        Usage:
+            :undo           - Undo last operation
+        """
+        desc = self.undo_manager.undo(self.canvas)
+        if desc:
+            self.project.mark_dirty()
+            return ModeResult(message=f"Undo: {desc}")
+        return ModeResult(message="Nothing to undo")
+
+    def _cmd_redo(self, args: list[str]) -> ModeResult:
+        """Redo the last undone operation.
+
+        Usage:
+            :redo           - Redo last undone operation
+        """
+        desc = self.undo_manager.redo(self.canvas)
+        if desc:
+            self.project.mark_dirty()
+            return ModeResult(message=f"Redo: {desc}")
+        return ModeResult(message="Nothing to redo")
+
+    def _cmd_history(self, args: list[str]) -> ModeResult:
+        """Show undo/redo history.
+
+        Usage:
+            :history        - Show recent operation history
+            :history N      - Show N most recent operations
+        """
+        limit = 10
+        if args:
+            try:
+                limit = int(args[0])
+            except ValueError:
+                pass
+
+        history = self.undo_manager.get_history(limit)
+        if not history:
+            return ModeResult(message="No history")
+
+        undo_count = self.undo_manager.undo_count
+        redo_count = self.undo_manager.redo_count
+        lines = [f"History ({undo_count} undo, {redo_count} redo):"]
+        for idx, desc in history:
+            marker = ">" if idx == 0 else " "
+            lines.append(f"  {marker} {idx}: {desc}")
+
+        return ModeResult(message="\n".join(lines), message_frames=180)
 
     def _cmd_zones(self, args: list[str]) -> ModeResult:
         """List all zones."""

@@ -464,6 +464,10 @@ class ModeStateMachine:
             return ModeResult(mode_changed=True, new_mode=Mode.DRAW,
                             message="-- DRAW -- pen DOWN (wasd to draw, space to lift)")
 
+        # Undo (vim-style)
+        if event.char == 'u':
+            return ModeResult(command="undo")
+
         return ModeResult(handled=False)
 
     def _process_pan(self, event: "InputEvent") -> ModeResult:
