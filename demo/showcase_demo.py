@@ -30,13 +30,17 @@ from modes import Mode
 
 
 def run_cmd(cmd):
-    """Run shell command and return output."""
+    """Run shell command and return output.
+
+    Note: Uses shell=True intentionally for demo scripts - command is
+    constructed internally, not from user input.
+    """
     try:
         result = subprocess.run(
             cmd, shell=True, capture_output=True, text=True, timeout=5
         )
-        return result.stdout.rstrip('\n')
-    except Exception as e:
+        return result.stdout.rstrip("\n")
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
         return f"(error: {e})"
 
 
@@ -49,7 +53,8 @@ def boxes_wrap(content, style="stone"):
     """Wrap content with /usr/bin/boxes - the REAL boxes command."""
     # Write to temp file to avoid shell escaping issues
     import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         f.write(content)
         tmpfile = f.name
     result = run_cmd(f"cat {tmpfile} | /usr/bin/boxes -d {style}")
@@ -109,8 +114,12 @@ class ShowcaseDemo(Application):
         if self.pan_progress > 1.0:
             self.pan_progress = 1.0
         t = self._smooth(self.pan_progress)
-        self.viewport.x = int(self.pan_start_x + (self.pan_target_x - self.pan_start_x) * t)
-        self.viewport.y = int(self.pan_start_y + (self.pan_target_y - self.pan_start_y) * t)
+        self.viewport.x = int(
+            self.pan_start_x + (self.pan_target_x - self.pan_start_x) * t
+        )
+        self.viewport.y = int(
+            self.pan_start_y + (self.pan_target_y - self.pan_start_y) * t
+        )
 
     def _cmd(self, s):
         result = self.state_machine._execute_command(s)
@@ -119,7 +128,7 @@ class ShowcaseDemo(Application):
 
     def _draw_text(self, x, y, text):
         """Draw multiline text."""
-        for i, line in enumerate(text.split('\n')):
+        for i, line in enumerate(text.split("\n")):
             if line:
                 self._cmd(f"goto {x} {y + i}")
                 safe = line.replace('"', "'")
@@ -137,7 +146,9 @@ class ShowcaseDemo(Application):
 
         if 3.0 < t < 3.5:
             # Use real boxes for tagline
-            box = boxes_wrap("Spatial Workspace  -  ASCII Canvas  -  Vim Navigation", "ansi-rounded")
+            box = boxes_wrap(
+                "Spatial Workspace  -  ASCII Canvas  -  Vim Navigation", "ansi-rounded"
+            )
             self._draw_text(5, 12, box)
 
         if 6.0 < t < 6.5:
@@ -241,14 +252,16 @@ Watch as we type in real-time..."""
             if t < 20.0 and self.typing_index < len(box_top):
                 now = time.time()
                 if now - self.typing_last_time >= 0.1:
-                    self.canvas.set_cell(10 + self.typing_index, 120, box_top[self.typing_index])
+                    self.canvas.set_cell(
+                        10 + self.typing_index, 120, box_top[self.typing_index]
+                    )
                     self.typing_index += 1
                     self.typing_last_time = now
             elif 20.0 < t < 21.0:
-                self.canvas.set_cell(10, 121, '|')
-                self.canvas.set_cell(22, 121, '|')
-                self.canvas.set_cell(10, 122, '|')
-                self.canvas.set_cell(22, 122, '|')
+                self.canvas.set_cell(10, 121, "|")
+                self.canvas.set_cell(22, 121, "|")
+                self.canvas.set_cell(10, 122, "|")
+                self.canvas.set_cell(22, 122, "|")
             elif 21.0 < t < 22.5:
                 for i, c in enumerate("+-----------+"):
                     self.canvas.set_cell(10 + i, 123, c)
@@ -407,7 +420,9 @@ Three modes available:"""
             self._show_message("MARKERS mode - Intersections only")
 
         if 16.0 < t < 16.5:
-            box = boxes_wrap("MARKERS: Intersections only\n:grid markers", "ansi-rounded")
+            box = boxes_wrap(
+                "MARKERS: Intersections only\n:grid markers", "ansi-rounded"
+            )
             self._draw_text(5, 318, box)
 
         # Spacing
@@ -417,7 +432,9 @@ Three modes available:"""
             self._show_message("Grid spacing: 20 major / 5 minor")
 
         if 22.0 < t < 22.5:
-            box = boxes_wrap(":grid interval 20 5\nWider spacing for big diagrams!", "stone")
+            box = boxes_wrap(
+                ":grid interval 20 5\nWider spacing for big diagrams!", "stone"
+            )
             self._draw_text(5, 326, box)
 
         if 26.0 < t < 26.5:
@@ -433,7 +450,9 @@ Three modes available:"""
             self._draw_text(5, 348, banner)
 
         if 2.0 < t < 2.5:
-            box = boxes_wrap("Zones are named regions!\nJump instantly between them.", "stone")
+            box = boxes_wrap(
+                "Zones are named regions!\nJump instantly between them.", "stone"
+            )
             self._draw_text(5, 360, box)
 
         # STATIC
@@ -578,6 +597,7 @@ Thanks for watching!"""
 def run_demo(duration=240):
     def main(stdscr):
         ShowcaseDemo(stdscr).run_demo(duration)
+
     curses.wrapper(main)
 
 

@@ -68,6 +68,7 @@ CMD_DELAY = 0.02
 @dataclass
 class Zone:
     """A demo zone on the canvas."""
+
     name: str
     bookmark: str
     x: int
@@ -91,7 +92,15 @@ ZONES = [
 
 def ctl(*args) -> Tuple[int, str]:
     """Execute mygrid-ctl command."""
-    cmd = [sys.executable, str(MYGRID_CTL), "--host", DEFAULT_HOST, "--port", str(DEFAULT_PORT), *args]
+    cmd = [
+        sys.executable,
+        str(MYGRID_CTL),
+        "--host",
+        DEFAULT_HOST,
+        "--port",
+        str(DEFAULT_PORT),
+        *args,
+    ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     return result.returncode, result.stdout + result.stderr
 
@@ -99,8 +108,9 @@ def ctl(*args) -> Tuple[int, str]:
 def batch(commands: List[str]) -> Tuple[int, str]:
     """Execute batch of commands."""
     import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write('\n'.join(commands))
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write("\n".join(commands))
         temp_path = f.name
     result = ctl("batch", temp_path)
     Path(temp_path).unlink()
@@ -114,14 +124,15 @@ def wait(seconds: float = CMD_DELAY):
 def get_position() -> Tuple[int, int]:
     """Get current cursor position."""
     import json
+
     code, output = ctl("status", "--json")
     if code == 0:
         try:
-            data = json.loads(output.strip().split('\n')[0])
-            if data.get('status') == 'ok':
-                state = json.loads(data.get('message', '{}'))
-                return state['cursor']['x'], state['cursor']['y']
-        except:
+            data = json.loads(output.strip().split("\n")[0])
+            if data.get("status") == "ok":
+                state = json.loads(data.get("message", "{}"))
+                return state["cursor"]["x"], state["cursor"]["y"]
+        except (json.JSONDecodeError, KeyError, TypeError):
             pass
     return 0, 0
 
@@ -142,11 +153,17 @@ def smooth_scroll(target_x: int, target_y: int, steps: int = SMOOTH_STEPS):
 
 
 def run_filter(text: str, cmd: str) -> Optional[str]:
-    """Run text through shell filter."""
+    """Run text through shell filter.
+
+    Note: Uses shell=True intentionally for demo scripts - command is
+    constructed internally, not from user input.
+    """
     try:
-        result = subprocess.run(cmd, shell=True, input=text, capture_output=True, text=True, timeout=5)
+        result = subprocess.run(
+            cmd, shell=True, input=text, capture_output=True, text=True, timeout=5
+        )
         return result.stdout if result.returncode == 0 else None
-    except:
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
         return None
 
 
@@ -154,7 +171,7 @@ def draw_figlet(x: int, y: int, text: str, font: str = "standard") -> int:
     """Draw figlet text, return height."""
     output = run_filter(text, f"figlet -f {font}")
     if output:
-        lines = [l for l in output.split('\n') if l]
+        lines = [l for l in output.split("\n") if l]
         commands = []
         for i, line in enumerate(lines):
             if line.strip():
@@ -180,7 +197,7 @@ def draw_boxed_text(x: int, y: int, text: str, style: str = "stone") -> int:
     """Draw text in boxes style."""
     output = run_filter(text, f"boxes -d {style}")
     if output:
-        lines = [l for l in output.split('\n') if l]
+        lines = [l for l in output.split("\n") if l]
         commands = []
         for i, line in enumerate(lines):
             commands.append(f":goto {x} {y + i}")
@@ -208,6 +225,7 @@ def draw_arrow(x1: int, y1: int, x2: int, y2: int, char: str = "-"):
 # ============================================================================
 # ZONE DRAWING FUNCTIONS
 # ============================================================================
+
 
 def draw_zone_welcome():
     """Zone 1: Giant welcome banner."""
@@ -253,14 +271,16 @@ def draw_zone_drawing():
     # Lines demo
     ctl("goto", str(z.x), str(z.y + 10))
     ctl("text", "LINES:")
-    batch([
-        f":goto {z.x} {z.y + 12}",
-        f":line {z.x + 50} {z.y + 12} -",
-        f":goto {z.x} {z.y + 14}",
-        f":line {z.x + 50} {z.y + 18} .",
-        f":goto {z.x + 50} {z.y + 14}",
-        f":line {z.x} {z.y + 18} *",
-    ])
+    batch(
+        [
+            f":goto {z.x} {z.y + 12}",
+            f":line {z.x + 50} {z.y + 12} -",
+            f":goto {z.x} {z.y + 14}",
+            f":line {z.x + 50} {z.y + 18} .",
+            f":goto {z.x + 50} {z.y + 14}",
+            f":line {z.x} {z.y + 18} *",
+        ]
+    )
 
     # Text demo
     ctl("goto", str(z.x), str(z.y + 22))
@@ -291,7 +311,7 @@ PAN MODE:
   Move viewport, cursor follows
 """
 
-    lines = content.strip().split('\n')
+    lines = content.strip().split("\n")
     for i, line in enumerate(lines):
         ctl("goto", str(z.x), str(z.y + i))
         ctl("text", line)
@@ -432,7 +452,7 @@ TCP PROTOCOL:
   echo ':rect 10 5' | nc localhost 8765
 """
 
-    lines = content.strip().split('\n')
+    lines = content.strip().split("\n")
     for i, line in enumerate(lines):
         ctl("goto", str(z.x), str(z.y + i))
         ctl("text", line)
@@ -456,7 +476,7 @@ def draw_zone_answer():
  Because every canvas needs an easter egg.
 """
 
-    lines = answer_text.strip().split('\n')
+    lines = answer_text.strip().split("\n")
     for i, line in enumerate(lines):
         ctl("goto", str(z.x - 40), str(z.y - 15 + i))
         ctl("text", line)
@@ -590,11 +610,15 @@ def main():
 
     global DEFAULT_HOST, DEFAULT_PORT
 
-    parser = argparse.ArgumentParser(description="Educational Demo - Massive Canvas Tour")
-    parser.add_argument('--host', default=DEFAULT_HOST)
-    parser.add_argument('--port', type=int, default=DEFAULT_PORT)
-    parser.add_argument('--no-tour', action='store_true', help='Skip guided tour')
-    parser.add_argument('--zone', choices=[z.name.lower() for z in ZONES], help='Draw single zone')
+    parser = argparse.ArgumentParser(
+        description="Educational Demo - Massive Canvas Tour"
+    )
+    parser.add_argument("--host", default=DEFAULT_HOST)
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--no-tour", action="store_true", help="Skip guided tour")
+    parser.add_argument(
+        "--zone", choices=[z.name.lower() for z in ZONES], help="Draw single zone"
+    )
 
     args = parser.parse_args()
 

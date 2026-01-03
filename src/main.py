@@ -1391,7 +1391,7 @@ class Application:
                 try:
                     search_bytes = self.stdscr.getstr(height - 1, 1, 40)
                     search_term = search_bytes.decode("utf-8", errors="replace")
-                except:
+                except (curses.error, UnicodeDecodeError, OSError):
                     search_term = ""
                 curses.noecho()
                 # Find matches

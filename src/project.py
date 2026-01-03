@@ -3,13 +3,15 @@ Project save/load for ASCII canvas editor.
 
 Handles JSON project files with canvas data, viewport state, and settings.
 Also supports plain text export/import.
+
+Security: JSON files are validated before loading (Issue #68).
 """
 
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from canvas import Canvas
@@ -23,9 +25,119 @@ if TYPE_CHECKING:
 PROJECT_VERSION = "1.0"
 
 
+# =============================================================================
+# JSON Schema Validation (Issue #68)
+# =============================================================================
+
+# Schema for project files - validates structure before loading
+PROJECT_SCHEMA = {
+    "version": {"type": "string", "required": True},
+    "metadata": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "created": {"type": "string"},
+            "modified": {"type": "string"},
+            "description": {"type": "string"},
+        },
+    },
+    "canvas": {
+        "type": "object",
+        "properties": {
+            "cells": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["x", "y", "char"],
+                    "properties": {
+                        "x": {"type": "integer"},
+                        "y": {"type": "integer"},
+                        "char": {"type": "string"},
+                        "fg": {"type": "integer"},
+                        "bg": {"type": "integer"},
+                    },
+                },
+            },
+        },
+    },
+    "viewport": {
+        "type": "object",
+        "properties": {
+            "x": {"type": "integer"},
+            "y": {"type": "integer"},
+            "cursor": {"type": "object"},
+            "origin": {"type": "object"},
+        },
+    },
+    "bookmarks": {"type": "object"},
+    "zones": {"type": "object"},
+}
+
+
+def validate_project_data(data: dict[str, Any]) -> None:
+    """
+    Validate project data structure before loading.
+
+    Performs basic schema validation without external dependencies.
+    Raises ValueError if validation fails.
+
+    Args:
+        data: Parsed JSON data to validate
+
+    Raises:
+        ValueError: If required fields are missing or have wrong types
+        KeyError: If critical fields are missing
+    """
+    # Check version is present and valid
+    version = data.get("version")
+    if not version:
+        raise ValueError("Missing required field: version")
+    if not isinstance(version, str):
+        raise ValueError(
+            f"Invalid version type: expected string, got {type(version).__name__}"
+        )
+    if not version.startswith("1."):
+        raise ValueError(f"Unsupported project version: {version}")
+
+    # Validate canvas structure if present
+    if "canvas" in data:
+        canvas_data = data["canvas"]
+        if not isinstance(canvas_data, dict):
+            raise ValueError("Invalid canvas: expected object")
+
+        cells = canvas_data.get("cells", [])
+        if not isinstance(cells, list):
+            raise ValueError("Invalid canvas.cells: expected array")
+
+        # Validate each cell has required fields
+        for i, cell in enumerate(cells):
+            if not isinstance(cell, dict):
+                raise ValueError(f"Invalid cell at index {i}: expected object")
+            if "x" not in cell:
+                raise KeyError(f"Cell at index {i} missing required field: x")
+            if "y" not in cell:
+                raise KeyError(f"Cell at index {i} missing required field: y")
+            if "char" not in cell:
+                raise KeyError(f"Cell at index {i} missing required field: char")
+            # Type checks
+            if not isinstance(cell.get("x"), (int, float)):
+                raise ValueError(f"Cell at index {i}: x must be a number")
+            if not isinstance(cell.get("y"), (int, float)):
+                raise ValueError(f"Cell at index {i}: y must be a number")
+            if not isinstance(cell.get("char"), str):
+                raise ValueError(f"Cell at index {i}: char must be a string")
+
+    # Validate viewport structure if present
+    if "viewport" in data:
+        vp = data["viewport"]
+        if not isinstance(vp, dict):
+            raise ValueError("Invalid viewport: expected object")
+
+
 @dataclass
 class ProjectMetadata:
     """Project metadata."""
+
     name: str = "Untitled"
     created: str = ""
     modified: str = ""
@@ -54,6 +166,7 @@ class Project:
     - Grid settings
     - Metadata (name, timestamps)
     """
+
     filepath: Path | None = None
     metadata: ProjectMetadata = field(default_factory=ProjectMetadata.new)
     _dirty: bool = False
@@ -93,7 +206,7 @@ class Project:
         grid_settings: "GridSettings | None" = None,
         bookmarks: "BookmarkManager | None" = None,
         zones: "ZoneManager | None" = None,
-        filepath: Path | str | None = None
+        filepath: Path | str | None = None,
     ) -> Path:
         """
         Save project to JSON file.
@@ -146,7 +259,7 @@ class Project:
         if zones and len(zones) > 0:
             data["zones"] = zones.to_dict()
 
-        with open(self.filepath, 'w', encoding='utf-8') as f:
+        with open(self.filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
         self.mark_clean()
@@ -160,7 +273,7 @@ class Project:
         viewport: "Viewport",
         grid_settings: "GridSettings | None" = None,
         bookmarks: "BookmarkManager | None" = None,
-        zones: "ZoneManager | None" = None
+        zones: "ZoneManager | None" = None,
     ) -> "Project":
         """
         Load project from JSON file.
@@ -179,13 +292,17 @@ class Project:
         Raises:
             FileNotFoundError: If file doesn't exist
             ValueError: If file format is invalid
+            json.JSONDecodeError: If file is not valid JSON
         """
         filepath = Path(filepath)
 
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # Version check
+        # Security: Validate JSON structure before loading (Issue #68)
+        validate_project_data(data)
+
+        # Version check (redundant with validate_project_data but kept for clarity)
         version = data.get("version", "0.0")
         if not version.startswith("1."):
             raise ValueError(f"Unsupported project version: {version}")
@@ -221,6 +338,7 @@ class Project:
 
         if "y_direction" in vp_data:
             from viewport import YAxisDirection
+
             viewport.y_direction = YAxisDirection[vp_data["y_direction"]]
 
         # Load grid settings
@@ -235,6 +353,7 @@ class Project:
         # Load bookmarks
         if bookmarks and "bookmarks" in data:
             from modes import BookmarkManager
+
             bm_data = data["bookmarks"]
             for key, bm in bm_data.items():
                 bookmarks.set(key, bm.get("x", 0), bm.get("y", 0), bm.get("name", ""))
@@ -243,6 +362,7 @@ class Project:
         # Note: Use 'zones is not None' because empty ZoneManager is falsy (len=0)
         if zones is not None and "zones" in data:
             from zones import ZoneManager
+
             zones.clear()
             loaded_zones = ZoneManager.from_dict(data["zones"])
             for zone in loaded_zones:
@@ -256,7 +376,7 @@ class Project:
         self,
         canvas: "Canvas",
         filepath: Path | str | None = None,
-        include_empty_lines: bool = True
+        include_empty_lines: bool = True,
     ) -> Path:
         """
         Export canvas as plain text file.
@@ -272,14 +392,14 @@ class Project:
         if filepath:
             export_path = Path(filepath)
         elif self.filepath:
-            export_path = self.filepath.with_suffix('.txt')
+            export_path = self.filepath.with_suffix(".txt")
         else:
             export_path = Path("export.txt")
 
         bbox = canvas.bounding_box()
         if not bbox:
             # Empty canvas
-            with open(export_path, 'w', encoding='utf-8') as f:
+            with open(export_path, "w", encoding="utf-8") as f:
                 f.write("")
             return export_path
 
@@ -288,7 +408,7 @@ class Project:
             line_chars = []
             for x in range(bbox.min_x, bbox.max_x + 1):
                 line_chars.append(canvas.get_char(x, y))
-            line = ''.join(line_chars).rstrip()  # Remove trailing spaces
+            line = "".join(line_chars).rstrip()  # Remove trailing spaces
 
             if include_empty_lines or line:
                 lines.append(line)
@@ -297,10 +417,10 @@ class Project:
         while lines and not lines[-1]:
             lines.pop()
 
-        with open(export_path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(lines))
+        with open(export_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
             if lines:
-                f.write('\n')  # Final newline
+                f.write("\n")  # Final newline
 
         return export_path
 
@@ -311,7 +431,7 @@ class Project:
         canvas: "Canvas",
         viewport: "Viewport",
         start_x: int = 0,
-        start_y: int = 0
+        start_y: int = 0,
     ) -> "Project":
         """
         Import plain text file into canvas.
@@ -328,7 +448,7 @@ class Project:
         """
         filepath = Path(filepath)
 
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
 
         canvas.clear_all()
@@ -336,7 +456,7 @@ class Project:
         y = start_y
         for line in content.splitlines():
             for x, char in enumerate(line):
-                if char != ' ':
+                if char != " ":
                     canvas.set(start_x + x, y, char)
             y += 1
 
@@ -364,7 +484,7 @@ def get_recent_projects(max_count: int = 10) -> list[Path]:
         return []
 
     try:
-        with open(recent_file, 'r', encoding='utf-8') as f:
+        with open(recent_file, "r", encoding="utf-8") as f:
             data = json.load(f)
         paths = [Path(p) for p in data.get("recent", [])]
         # Filter to existing files only
@@ -386,7 +506,7 @@ def add_recent_project(filepath: Path | str, max_count: int = 10) -> None:
     recent = []
     if recent_file.exists():
         try:
-            with open(recent_file, 'r', encoding='utf-8') as f:
+            with open(recent_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             recent = data.get("recent", [])
         except (json.JSONDecodeError, KeyError):
@@ -400,7 +520,7 @@ def add_recent_project(filepath: Path | str, max_count: int = 10) -> None:
     recent = recent[:max_count]
 
     # Save
-    with open(recent_file, 'w', encoding='utf-8') as f:
+    with open(recent_file, "w", encoding="utf-8") as f:
         json.dump({"recent": recent}, f, indent=2)
 
 
@@ -419,13 +539,13 @@ def suggest_filename(canvas: "Canvas", base: str = "canvas") -> str:
         line_chars = []
         for x in range(bbox.min_x, min(bbox.min_x + 30, bbox.max_x + 1)):
             char = canvas.get_char(x, y)
-            if char.isalnum() or char in ' -_':
+            if char.isalnum() or char in " -_":
                 line_chars.append(char)
-        line = ''.join(line_chars).strip()
+        line = "".join(line_chars).strip()
         if line:
             # Clean up for filename
-            safe_name = ''.join(c if c.isalnum() or c in '-_' else '_' for c in line)
-            safe_name = safe_name.strip('_')[:30]
+            safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in line)
+            safe_name = safe_name.strip("_")[:30]
             if safe_name:
                 return f"{safe_name}.json"
 
@@ -489,6 +609,7 @@ class SessionManager:
             return False
 
         import time
+
         current_time = time.time()
         if current_time - self._last_save_time >= self.interval_seconds:
             return True
@@ -500,7 +621,7 @@ class SessionManager:
         viewport: "Viewport",
         grid_settings: "GridSettings | None" = None,
         bookmarks: "BookmarkManager | None" = None,
-        zones: "ZoneManager | None" = None
+        zones: "ZoneManager | None" = None,
     ) -> Path | None:
         """
         Perform auto-save if interval has elapsed.
@@ -512,6 +633,7 @@ class SessionManager:
             return None
 
         import time
+
         self._last_save_time = time.time()
 
         # Save to session file
@@ -546,7 +668,7 @@ class SessionManager:
             if zones and len(zones) > 0:
                 data["zones"] = zones.to_dict()
 
-            with open(session_path, 'w', encoding='utf-8') as f:
+            with open(session_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
 
             # Cleanup old sessions
@@ -562,11 +684,11 @@ class SessionManager:
             sessions = sorted(
                 self._session_dir.glob("session_*.json"),
                 key=lambda p: p.stat().st_mtime,
-                reverse=True
+                reverse=True,
             )
 
             # Keep only the most recent sessions
-            for old_session in sessions[self.max_sessions:]:
+            for old_session in sessions[self.max_sessions :]:
                 old_session.unlink()
         except Exception:
             pass  # Ignore cleanup errors
@@ -584,28 +706,32 @@ class SessionManager:
             for session_file in sorted(
                 self._session_dir.glob("session_*.json"),
                 key=lambda p: p.stat().st_mtime,
-                reverse=True
+                reverse=True,
             ):
                 try:
-                    with open(session_file, 'r', encoding='utf-8') as f:
+                    with open(session_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
 
-                    sessions.append({
-                        "id": data.get("session_id", session_file.stem),
-                        "timestamp": data.get("timestamp", "Unknown"),
-                        "path": session_file,
-                        "name": data.get("metadata", {}).get("name", "Session"),
-                    })
+                    sessions.append(
+                        {
+                            "id": data.get("session_id", session_file.stem),
+                            "timestamp": data.get("timestamp", "Unknown"),
+                            "path": session_file,
+                            "name": data.get("metadata", {}).get("name", "Session"),
+                        }
+                    )
                 except (json.JSONDecodeError, KeyError):
                     # Include file even if we can't read metadata
-                    sessions.append({
-                        "id": session_file.stem,
-                        "timestamp": datetime.fromtimestamp(
-                            session_file.stat().st_mtime
-                        ).isoformat(),
-                        "path": session_file,
-                        "name": "Unknown",
-                    })
+                    sessions.append(
+                        {
+                            "id": session_file.stem,
+                            "timestamp": datetime.fromtimestamp(
+                                session_file.stat().st_mtime
+                            ).isoformat(),
+                            "path": session_file,
+                            "name": "Unknown",
+                        }
+                    )
         except Exception:
             pass
 
@@ -625,7 +751,7 @@ class SessionManager:
         viewport: "Viewport",
         grid_settings: "GridSettings | None" = None,
         bookmarks: "BookmarkManager | None" = None,
-        zones: "ZoneManager | None" = None
+        zones: "ZoneManager | None" = None,
     ) -> bool:
         """
         Restore a session from file.
@@ -642,7 +768,7 @@ class SessionManager:
             True if successful, False otherwise
         """
         try:
-            with open(session_path, 'r', encoding='utf-8') as f:
+            with open(session_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             # Load canvas
@@ -666,14 +792,19 @@ class SessionManager:
 
             if "y_direction" in vp_data:
                 from viewport import YAxisDirection
+
                 viewport.y_direction = YAxisDirection[vp_data["y_direction"]]
 
             # Load grid settings
             if grid_settings and "grid" in data:
                 grid_data = data["grid"]
                 grid_settings.show_origin = grid_data.get("show_origin", True)
-                grid_settings.show_major_lines = grid_data.get("show_major_lines", False)
-                grid_settings.show_minor_lines = grid_data.get("show_minor_lines", False)
+                grid_settings.show_major_lines = grid_data.get(
+                    "show_major_lines", False
+                )
+                grid_settings.show_minor_lines = grid_data.get(
+                    "show_minor_lines", False
+                )
                 grid_settings.major_interval = grid_data.get("major_interval", 10)
                 grid_settings.minor_interval = grid_data.get("minor_interval", 5)
 
@@ -681,11 +812,14 @@ class SessionManager:
             if bookmarks and "bookmarks" in data:
                 bm_data = data["bookmarks"]
                 for key, bm in bm_data.items():
-                    bookmarks.set(key, bm.get("x", 0), bm.get("y", 0), bm.get("name", ""))
+                    bookmarks.set(
+                        key, bm.get("x", 0), bm.get("y", 0), bm.get("name", "")
+                    )
 
             # Load zones
             if zones and "zones" in data:
                 from zones import ZoneManager
+
                 zones.clear()
                 loaded_zones = ZoneManager.from_dict(data["zones"])
                 for zone in loaded_zones:
@@ -718,7 +852,7 @@ class SessionManager:
 
         try:
             # Check if session is from a different run (not current session)
-            with open(latest, 'r', encoding='utf-8') as f:
+            with open(latest, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             session_id = data.get("session_id", "")

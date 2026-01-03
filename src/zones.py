@@ -21,20 +21,22 @@ from enum import Enum
 from typing import Iterator, Any
 import math
 import re
+import shlex
 
 
 # Regex to match ANSI escape sequences
-_ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;?]*[a-zA-Z]|\x1b[>=]')
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[>=]")
 
 
 def strip_ansi(text: str) -> str:
     """Remove ANSI escape sequences from text."""
-    return _ANSI_ESCAPE_RE.sub('', text)
+    return _ANSI_ESCAPE_RE.sub("", text)
 
 
 @dataclass
 class StyledChar:
     """A character with color information for ANSI-parsed content."""
+
     char: str
     fg: int = -1  # Foreground color (-1 = default, 0-7 = colors)
     bg: int = -1  # Background color (-1 = default, 0-7 = colors)
@@ -101,17 +103,17 @@ def parse_ansi_line(line: str) -> list[StyledChar]:
 
     while i < len(line):
         # Check for ANSI escape sequence
-        if line[i:i+2] == '\x1b[':
+        if line[i : i + 2] == "\x1b[":
             # Find the end of the escape sequence (letter terminates it)
             j = i + 2
-            while j < len(line) and line[j] not in 'ABCDEFGHJKSTfmsu':
+            while j < len(line) and line[j] not in "ABCDEFGHJKSTfmsu":
                 j += 1
 
-            if j < len(line) and line[j] == 'm':
+            if j < len(line) and line[j] == "m":
                 # SGR sequence - parse color codes
-                codes_str = line[i+2:j]
+                codes_str = line[i + 2 : j]
                 if codes_str:
-                    codes = codes_str.split(';')
+                    codes = codes_str.split(";")
                     idx = 0
                     while idx < len(codes):
                         try:
@@ -177,7 +179,7 @@ def parse_ansi_line(line: str) -> list[StyledChar]:
 
         # Regular character
         char = line[i]
-        if char not in ('\r', '\n'):
+        if char not in ("\r", "\n"):
             result.append(StyledChar(char, fg, bg))
         i += 1
 
@@ -194,7 +196,7 @@ def parse_ansi_content(content: str) -> list[list[StyledChar]]:
     Returns:
         List of styled lines, each line is a list of StyledChar
     """
-    lines = content.split('\n')
+    lines = content.split("\n")
     return [parse_ansi_line(line) for line in lines]
 
 
@@ -202,48 +204,110 @@ def parse_ansi_content(content: str) -> list[list[StyledChar]]:
 # Includes corners, edges, and junction characters for DRAW mode
 BORDER_STYLES = {
     "ascii": {
-        "tl": "+", "tr": "+", "bl": "+", "br": "+",
-        "horiz": "-", "vert": "|",
-        "cross": "+", "tee_down": "+", "tee_up": "+", "tee_right": "+", "tee_left": "+",
-        "focused_tl": "#", "focused_tr": "#", "focused_bl": "#", "focused_br": "#",
-        "focused_horiz": "=", "focused_vert": "#",
+        "tl": "+",
+        "tr": "+",
+        "bl": "+",
+        "br": "+",
+        "horiz": "-",
+        "vert": "|",
+        "cross": "+",
+        "tee_down": "+",
+        "tee_up": "+",
+        "tee_right": "+",
+        "tee_left": "+",
+        "focused_tl": "#",
+        "focused_tr": "#",
+        "focused_bl": "#",
+        "focused_br": "#",
+        "focused_horiz": "=",
+        "focused_vert": "#",
     },
     "unicode": {
-        "tl": "┌", "tr": "┐", "bl": "└", "br": "┘",
-        "horiz": "─", "vert": "│",
-        "cross": "┼", "tee_down": "┬", "tee_up": "┴", "tee_right": "├", "tee_left": "┤",
-        "focused_tl": "╔", "focused_tr": "╗", "focused_bl": "╚", "focused_br": "╝",
-        "focused_horiz": "═", "focused_vert": "║",
+        "tl": "┌",
+        "tr": "┐",
+        "bl": "└",
+        "br": "┘",
+        "horiz": "─",
+        "vert": "│",
+        "cross": "┼",
+        "tee_down": "┬",
+        "tee_up": "┴",
+        "tee_right": "├",
+        "tee_left": "┤",
+        "focused_tl": "╔",
+        "focused_tr": "╗",
+        "focused_bl": "╚",
+        "focused_br": "╝",
+        "focused_horiz": "═",
+        "focused_vert": "║",
     },
     "rounded": {
-        "tl": "╭", "tr": "╮", "bl": "╰", "br": "╯",
-        "horiz": "─", "vert": "│",
-        "cross": "┼", "tee_down": "┬", "tee_up": "┴", "tee_right": "├", "tee_left": "┤",
-        "focused_tl": "╔", "focused_tr": "╗", "focused_bl": "╚", "focused_br": "╝",
-        "focused_horiz": "═", "focused_vert": "║",
+        "tl": "╭",
+        "tr": "╮",
+        "bl": "╰",
+        "br": "╯",
+        "horiz": "─",
+        "vert": "│",
+        "cross": "┼",
+        "tee_down": "┬",
+        "tee_up": "┴",
+        "tee_right": "├",
+        "tee_left": "┤",
+        "focused_tl": "╔",
+        "focused_tr": "╗",
+        "focused_bl": "╚",
+        "focused_br": "╝",
+        "focused_horiz": "═",
+        "focused_vert": "║",
     },
     "double": {
-        "tl": "╔", "tr": "╗", "bl": "╚", "br": "╝",
-        "horiz": "═", "vert": "║",
-        "cross": "╬", "tee_down": "╦", "tee_up": "╩", "tee_right": "╠", "tee_left": "╣",
-        "focused_tl": "╬", "focused_tr": "╬", "focused_bl": "╬", "focused_br": "╬",
-        "focused_horiz": "═", "focused_vert": "║",
+        "tl": "╔",
+        "tr": "╗",
+        "bl": "╚",
+        "br": "╝",
+        "horiz": "═",
+        "vert": "║",
+        "cross": "╬",
+        "tee_down": "╦",
+        "tee_up": "╩",
+        "tee_right": "╠",
+        "tee_left": "╣",
+        "focused_tl": "╬",
+        "focused_tr": "╬",
+        "focused_bl": "╬",
+        "focused_br": "╬",
+        "focused_horiz": "═",
+        "focused_vert": "║",
     },
     "heavy": {
-        "tl": "┏", "tr": "┓", "bl": "┗", "br": "┛",
-        "horiz": "━", "vert": "┃",
-        "cross": "╋", "tee_down": "┳", "tee_up": "┻", "tee_right": "┣", "tee_left": "┫",
-        "focused_tl": "╋", "focused_tr": "╋", "focused_bl": "╋", "focused_br": "╋",
-        "focused_horiz": "━", "focused_vert": "┃",
+        "tl": "┏",
+        "tr": "┓",
+        "bl": "┗",
+        "br": "┛",
+        "horiz": "━",
+        "vert": "┃",
+        "cross": "╋",
+        "tee_down": "┳",
+        "tee_up": "┻",
+        "tee_right": "┣",
+        "tee_left": "┫",
+        "focused_tl": "╋",
+        "focused_tr": "╋",
+        "focused_bl": "╋",
+        "focused_br": "╋",
+        "focused_horiz": "━",
+        "focused_vert": "┃",
     },
 }
 
 # Current border style (can be changed globally)
 _current_border_style = "ascii"
 
+
 def get_border_style() -> str:
     """Get current border style name."""
     return _current_border_style
+
 
 def set_border_style(style: str) -> bool:
     """Set border style. Returns True if valid style."""
@@ -253,9 +317,11 @@ def set_border_style(style: str) -> bool:
         return True
     return False
 
+
 def list_border_styles() -> list[str]:
     """List available border styles."""
     return list(BORDER_STYLES.keys())
+
 
 def get_border_chars() -> dict[str, str]:
     """Get character set for current border style."""
@@ -264,19 +330,21 @@ def get_border_chars() -> dict[str, str]:
 
 class ZoneType(Enum):
     """Types of zones with different behaviors."""
-    STATIC = "static"       # Plain text region (default)
-    PIPE = "pipe"           # One-shot command output
-    WATCH = "watch"         # Periodic refresh command
-    PTY = "pty"             # Live terminal session
-    FIFO = "fifo"           # Named pipe listener
-    SOCKET = "socket"       # Network port listener
-    CLIPBOARD = "clipboard" # Yank/paste buffer
-    PAGER = "pager"         # Paginated file viewer with colors
+
+    STATIC = "static"  # Plain text region (default)
+    PIPE = "pipe"  # One-shot command output
+    WATCH = "watch"  # Periodic refresh command
+    PTY = "pty"  # Live terminal session
+    FIFO = "fifo"  # Named pipe listener
+    SOCKET = "socket"  # Network port listener
+    CLIPBOARD = "clipboard"  # Yank/paste buffer
+    PAGER = "pager"  # Paginated file viewer with colors
 
 
 @dataclass
 class ZoneConfig:
     """Configuration for dynamic zone types."""
+
     zone_type: ZoneType = ZoneType.STATIC
 
     # For PIPE/WATCH zones
@@ -292,24 +360,24 @@ class ZoneConfig:
 
     # For PAGER zones
     file_path: str | None = None  # Source file to display
-    renderer: str = "auto"        # "glow", "bat", "plain", or "auto"
-    scroll_offset: int = 0        # Current scroll position (line number)
-    search_term: str | None = None     # Active search term
+    renderer: str = "auto"  # "glow", "bat", "plain", or "auto"
+    scroll_offset: int = 0  # Current scroll position (line number)
+    search_term: str | None = None  # Active search term
     search_matches: list[int] = field(default_factory=list)  # Line numbers with matches
-    search_index: int = 0         # Current match index
+    search_index: int = 0  # Current match index
 
     # For PTY zones
-    pty_scroll_offset: int = 0   # Scroll position in PTY history buffer
+    pty_scroll_offset: int = 0  # Scroll position in PTY history buffer
     pty_auto_scroll: bool = True  # Auto-scroll to bottom on new output
 
     # Display options
-    scroll: bool = True      # Auto-scroll to bottom on new content
-    wrap: bool = False       # Wrap long lines
-    max_lines: int = 1000    # Buffer limit for output
+    scroll: bool = True  # Auto-scroll to bottom on new content
+    wrap: bool = False  # Wrap long lines
+    max_lines: int = 1000  # Buffer limit for output
 
     # State
-    paused: bool = False     # Pause refresh for WATCH zones
-    focused: bool = False    # PTY/PAGER zone has keyboard focus
+    paused: bool = False  # Pause refresh for WATCH zones
+    focused: bool = False  # PTY/PAGER zone has keyboard focus
 
     def to_dict(self) -> dict:
         """Serialize config to dictionary."""
@@ -375,6 +443,7 @@ class Zone:
 
     Dynamic zones (PIPE, WATCH, PTY, etc.) have a config and content buffer.
     """
+
     name: str
     x: int
     y: int
@@ -382,12 +451,14 @@ class Zone:
     height: int
     description: str = ""
     border_style: str | None = None  # boxes style name for border
-    bookmark: str | None = None      # Associated bookmark key (a-z, 0-9)
+    bookmark: str | None = None  # Associated bookmark key (a-z, 0-9)
     config: ZoneConfig = field(default_factory=ZoneConfig)
 
     # Content buffer for dynamic zones (not serialized - regenerated at runtime)
     _content_lines: list[str] = field(default_factory=list, repr=False)
-    _styled_content: list[list[StyledChar]] = field(default_factory=list, repr=False)  # PAGER parsed content
+    _styled_content: list[list[StyledChar]] = field(
+        default_factory=list, repr=False
+    )  # PAGER parsed content
     _runtime_data: dict = field(default_factory=dict, repr=False)  # PTY handle, etc.
 
     @property
@@ -464,12 +535,16 @@ class Zone:
 
         # PAGER zones use styled content with scroll offset
         if self.config.zone_type == ZoneType.PAGER:
-            self._render_pager_content(canvas, content_x, content_y, content_w, content_h)
+            self._render_pager_content(
+                canvas, content_x, content_y, content_w, content_h
+            )
             return
 
         # PTY zones with styled content (pyte colors) - render directly
         if self.config.zone_type == ZoneType.PTY and self._styled_content:
-            self._render_pty_styled_content(canvas, content_x, content_y, content_w, content_h)
+            self._render_pty_styled_content(
+                canvas, content_x, content_y, content_w, content_h
+            )
             return
 
         # Other dynamic zones: parse ANSI codes and render with colors
@@ -501,14 +576,15 @@ class Zone:
             for col, sc in enumerate(styled_chars):
                 if col >= content_w:
                     break  # Line too long
-                if sc.char not in (' ', '\t', '\n', '\r'):
+                if sc.char not in (" ", "\t", "\n", "\r"):
                     # Render with color if specified (use -1 for default, not None)
                     fg = sc.fg if sc.fg >= 0 else -1
                     bg = sc.bg if sc.bg >= 0 else -1
                     canvas.set(content_x + col, content_y + row, sc.char, fg=fg, bg=bg)
 
-    def _render_pty_styled_content(self, canvas, content_x: int, content_y: int,
-                                    content_w: int, content_h: int) -> None:
+    def _render_pty_styled_content(
+        self, canvas, content_x: int, content_y: int, content_w: int, content_h: int
+    ) -> None:
         """Render PTY zone with styled content from pyte (with colors)."""
         if not self._styled_content:
             return
@@ -523,14 +599,17 @@ class Zone:
                     break  # Line too long
 
                 # Skip whitespace characters (but render them if they have background color)
-                if sc.char in (' ', '\t', '\n', '\r') and sc.bg == -1:
+                if sc.char in (" ", "\t", "\n", "\r") and sc.bg == -1:
                     continue
 
                 # Render character with pyte colors
-                canvas.set(content_x + col, content_y + row, sc.char, fg=sc.fg, bg=sc.bg)
+                canvas.set(
+                    content_x + col, content_y + row, sc.char, fg=sc.fg, bg=sc.bg
+                )
 
-    def _render_pager_content(self, canvas, content_x: int, content_y: int,
-                               content_w: int, content_h: int) -> None:
+    def _render_pager_content(
+        self, canvas, content_x: int, content_y: int, content_w: int, content_h: int
+    ) -> None:
         """Render PAGER zone with styled content, colors, and scroll offset."""
         if not self._styled_content:
             return
@@ -544,11 +623,13 @@ class Zone:
             start = max_offset
             self.config.scroll_offset = start
 
-        visible_lines = self._styled_content[start:start + content_h]
+        visible_lines = self._styled_content[start : start + content_h]
 
         # Check if we have search matches to highlight
         search_term = self.config.search_term
-        search_lines = set(self.config.search_matches) if self.config.search_matches else set()
+        search_lines = (
+            set(self.config.search_matches) if self.config.search_matches else set()
+        )
 
         # Render content (leave 1 char on right for scrollbar if needed)
         text_width = content_w - 1 if total_lines > content_h else content_w
@@ -561,7 +642,7 @@ class Zone:
                 if col >= text_width:
                     break  # Line too long
 
-                if sc.char in (' ', '\t', '\n', '\r'):
+                if sc.char in (" ", "\t", "\n", "\r"):
                     continue
 
                 # Use character's colors, or highlight if on search match line
@@ -574,11 +655,18 @@ class Zone:
 
         # Draw scroll indicator on right edge if content overflows
         if total_lines > content_h:
-            self._render_scroll_indicator(canvas, content_x + content_w - 1,
-                                           content_y, content_h, start, total_lines)
+            self._render_scroll_indicator(
+                canvas,
+                content_x + content_w - 1,
+                content_y,
+                content_h,
+                start,
+                total_lines,
+            )
 
-    def _render_scroll_indicator(self, canvas, x: int, y: int, height: int,
-                                  scroll_offset: int, total_lines: int) -> None:
+    def _render_scroll_indicator(
+        self, canvas, x: int, y: int, height: int, scroll_offset: int, total_lines: int
+    ) -> None:
         """Render a scrollbar/position indicator on the right edge."""
         # Calculate thumb position and size
         # Thumb size: proportional to visible/total ratio, min 1 char
@@ -653,7 +741,7 @@ class Zone:
         # Draw top left corner
         canvas.set(x, y, tl)
         # Draw header
-        for i, char in enumerate(header[:w-4]):
+        for i, char in enumerate(header[: w - 4]):
             canvas.set(x + 1 + i, y, char)
         # Fill rest of top border
         for i in range(len(header) + 1, w - 1):
@@ -680,8 +768,9 @@ class Zone:
 
     def contains(self, cx: int, cy: int) -> bool:
         """Check if a canvas coordinate is within this zone."""
-        return (self.x <= cx < self.x + self.width and
-                self.y <= cy < self.y + self.height)
+        return (
+            self.x <= cx < self.x + self.width and self.y <= cy < self.y + self.height
+        )
 
     def center(self) -> tuple[int, int]:
         """Get the center coordinates of this zone."""
@@ -722,25 +811,25 @@ class Zone:
         dy = center_y - cy
 
         if abs(dx) < 5 and abs(dy) < 5:
-            return '·'
+            return "·"
 
         # Determine primary direction
         if abs(dx) > abs(dy) * 2:
             # Primarily horizontal
-            return '→' if dx > 0 else '←'
+            return "→" if dx > 0 else "←"
         elif abs(dy) > abs(dx) * 2:
             # Primarily vertical
-            return '↓' if dy > 0 else '↑'
+            return "↓" if dy > 0 else "↑"
         else:
             # Diagonal
             if dx > 0 and dy > 0:
-                return '↘'
+                return "↘"
             elif dx > 0 and dy < 0:
-                return '↗'
+                return "↗"
             elif dx < 0 and dy > 0:
-                return '↙'
+                return "↙"
             else:
-                return '↖'
+                return "↖"
 
     def to_dict(self) -> dict:
         """Serialize zone to dictionary for JSON export."""
@@ -905,10 +994,14 @@ class ZoneManager:
             zone_type=ZoneType.CLIPBOARD,
         )
         return self.create(
-            name, x, y, width, height,
+            name,
+            x,
+            y,
+            width,
+            height,
             description="Clipboard buffer",
             bookmark=bookmark,
-            config=config
+            config=config,
         )
 
     def delete(self, name: str) -> bool:
@@ -944,10 +1037,7 @@ class ZoneManager:
         return sorted(self._zones.values(), key=lambda z: z.name.lower())
 
     def nearest(
-        self,
-        x: int,
-        y: int,
-        exclude_current: bool = True
+        self, x: int, y: int, exclude_current: bool = True
     ) -> tuple[Zone, float, str] | None:
         """
         Find the nearest zone to a canvas coordinate.
@@ -962,7 +1052,7 @@ class ZoneManager:
         current_zone = self.find_at(x, y) if exclude_current else None
 
         nearest_zone = None
-        nearest_dist = float('inf')
+        nearest_dist = float("inf")
 
         for zone in self._zones.values():
             if zone is current_zone:
@@ -1080,9 +1170,7 @@ class ZoneManager:
 
     def to_dict(self) -> dict:
         """Serialize all zones to dictionary for JSON export."""
-        return {
-            "zones": [zone.to_dict() for zone in self.list_all()]
-        }
+        return {"zones": [zone.to_dict() for zone in self.list_all()]}
 
     @classmethod
     def from_dict(cls, data: dict) -> "ZoneManager":
@@ -1137,7 +1225,7 @@ class ZoneExecutor:
                 shell=True,
                 capture_output=True,
                 text=True,
-                timeout=timeout
+                timeout=timeout,
             )
 
             # Combine stdout and stderr
@@ -1189,7 +1277,7 @@ class ZoneExecutor:
                 target=self._watch_loop,
                 args=(zone, stop_event),
                 daemon=True,
-                name=f"watch-{key}"
+                name=f"watch-{key}",
             )
             self._watch_threads[key] = thread
             thread.start()
@@ -1264,6 +1352,7 @@ try:
     import termios
     import select
     import pty
+
     PTY_AVAILABLE = True
     PTYScreen = None  # Will import lazily when needed
 except ImportError:
@@ -1288,7 +1377,9 @@ class PTYHandler:
 
     def __init__(self, zone_manager: ZoneManager):
         self.zone_manager = zone_manager
-        self._pty_data: dict[str, dict] = {}  # zone_name -> {fd, pid, thread, stop_event}
+        self._pty_data: dict[str, dict] = (
+            {}
+        )  # zone_name -> {fd, pid, thread, stop_event}
         self._lock = threading.Lock()
 
     @property
@@ -1319,7 +1410,7 @@ class PTYHandler:
             master_fd, slave_fd = pty.openpty()
 
             # Set terminal size based on zone dimensions
-            content_w = zone.width - 2   # Account for border
+            content_w = zone.width - 2  # Account for border
             content_h = zone.height - 2
             self._set_winsize(master_fd, content_h, content_w)
 
@@ -1344,15 +1435,15 @@ class PTYHandler:
 
                 # Set environment
                 env = os.environ.copy()
-                env['TERM'] = 'xterm-256color'
-                env['COLUMNS'] = str(content_w)
-                env['LINES'] = str(content_h)
-                env['PS1'] = '$ '  # Simple prompt for better display
+                env["TERM"] = "xterm-256color"
+                env["COLUMNS"] = str(content_w)
+                env["LINES"] = str(content_h)
+                env["PS1"] = "$ "  # Simple prompt for better display
 
                 # Execute shell in interactive mode
-                shell = zone.config.shell or '/bin/bash'
+                shell = zone.config.shell or "/bin/bash"
                 # Add -i for interactive mode (enables echo and proper TTY behavior)
-                os.execvpe(shell, [shell, '-i'], env)
+                os.execvpe(shell, [shell, "-i"], env)
 
             else:
                 # Parent process
@@ -1368,9 +1459,16 @@ class PTYHandler:
                     from pty_screen import PTYScreen as PTYScreenClass
 
                     screen = PTYScreenClass(content_w, content_h, history=1000)
-                    zone.append_content(f"[PTY: Using pyte terminal emulator - {content_w}x{content_h}]")
+                    zone.append_content(
+                        f"[PTY: Using pyte terminal emulator - {content_w}x{content_h}]"
+                    )
                 except ImportError as e:
-                    zone.set_content([f"[PTY: pyte import failed - {e}]", "[Falling back to line-based mode]"])
+                    zone.set_content(
+                        [
+                            f"[PTY: pyte import failed - {e}]",
+                            "[Falling back to line-based mode]",
+                        ]
+                    )
                     screen = None  # Will use old reader
                 except Exception as e:
                     zone.set_content([f"[PTY: pyte initialization failed - {e}]"])
@@ -1384,7 +1482,7 @@ class PTYHandler:
                         target=self._pty_reader_pyte,
                         args=(zone, master_fd, stop_event, screen),
                         daemon=True,
-                        name=f"pty-{key}"
+                        name=f"pty-{key}",
                     )
                 else:
                     # Fallback to old line-based reader
@@ -1392,16 +1490,16 @@ class PTYHandler:
                         target=self._pty_reader,
                         args=(zone, master_fd, stop_event),
                         daemon=True,
-                        name=f"pty-{key}"
+                        name=f"pty-{key}",
                     )
 
                 with self._lock:
                     self._pty_data[key] = {
-                        'fd': master_fd,
-                        'pid': pid,
-                        'thread': reader_thread,
-                        'stop_event': stop_event,
-                        'screen': screen  # Store pyte screen
+                        "fd": master_fd,
+                        "pid": pid,
+                        "thread": reader_thread,
+                        "stop_event": stop_event,
+                        "screen": screen,  # Store pyte screen
                     }
 
                 reader_thread.start()
@@ -1413,11 +1511,12 @@ class PTYHandler:
 
     def _set_winsize(self, fd: int, rows: int, cols: int) -> None:
         """Set terminal window size."""
-        winsize = struct.pack('HHHH', rows, cols, 0, 0)
+        winsize = struct.pack("HHHH", rows, cols, 0, 0)
         fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
 
-    def _pty_reader_pyte(self, zone: Zone, fd: int, stop_event: threading.Event,
-                          screen) -> None:
+    def _pty_reader_pyte(
+        self, zone: Zone, fd: int, stop_event: threading.Event, screen
+    ) -> None:
         """Background thread that reads PTY output using pyte terminal emulator.
 
         This is the NEW implementation using proper terminal emulation.
@@ -1446,12 +1545,13 @@ class PTYHandler:
                     final_styled = screen.get_display_lines_styled(scroll_offset=0)
                     # Add exit message as plain text line
                     from src.pty_screen import StyledChar
+
                     exit_line = [StyledChar(ch, -1, -1) for ch in "[Process exited]"]
                     zone.set_styled_content(final_styled + [exit_line])
                     break
 
                 # Decode and feed to pyte (handles ALL terminal sequences!)
-                text = data.decode('utf-8', errors='replace')
+                text = data.decode("utf-8", errors="replace")
                 screen.feed(text)
 
                 # Get current display from pyte screen WITH COLORS
@@ -1460,7 +1560,9 @@ class PTYHandler:
                     styled_lines = screen.get_display_lines_styled(scroll_offset=0)
                 else:
                     # Show scrolled view
-                    styled_lines = screen.get_display_lines_styled(scroll_offset=zone.config.pty_scroll_offset)
+                    styled_lines = screen.get_display_lines_styled(
+                        scroll_offset=zone.config.pty_scroll_offset
+                    )
 
                 # Update zone content with styled characters (colors preserved!)
                 # This is key: pyte maintains the screen state, we just display it
@@ -1473,12 +1575,14 @@ class PTYHandler:
                 # On error, try to preserve screen state
                 try:
                     from src.pty_screen import StyledChar
+
                     styled_lines = screen.get_display_lines_styled(scroll_offset=0)
                     error_msg = f"[PTY error: {e}]"
                     error_line = [StyledChar(ch, 1, -1) for ch in error_msg]  # Red text
                     zone.set_styled_content(styled_lines + [error_line])
-                except:
+                except (ImportError, AttributeError, TypeError) as inner_e:
                     from src.pty_screen import StyledChar
+
                     error_msg = f"[PTY error: {e}]"
                     error_line = [StyledChar(ch, 1, -1) for ch in error_msg]
                     zone.set_styled_content([error_line])
@@ -1510,11 +1614,11 @@ class PTYHandler:
                     break
 
                 # Decode and process output
-                text = data.decode('utf-8', errors='replace')
+                text = data.decode("utf-8", errors="replace")
                 buffer += text
 
                 # Split on newlines
-                parts = buffer.split('\n')
+                parts = buffer.split("\n")
 
                 # Remove previous incomplete line if we had one
                 if showing_incomplete and zone._content_lines:
@@ -1524,7 +1628,7 @@ class PTYHandler:
                 # Add all complete lines (everything except the last element)
                 for line in parts[:-1]:
                     # Remove carriage returns
-                    clean_line = line.replace('\r', '')
+                    clean_line = line.replace("\r", "")
                     zone.append_content(clean_line)
 
                 # Keep the incomplete part in buffer
@@ -1533,7 +1637,7 @@ class PTYHandler:
                 # Show the incomplete line (what you're currently typing!)
                 if buffer:
                     # Don't show if it's just \r or whitespace
-                    display_buffer = buffer.replace('\r', '')
+                    display_buffer = buffer.replace("\r", "")
                     if display_buffer:
                         zone.append_content(display_buffer)
                         showing_incomplete = True
@@ -1559,17 +1663,20 @@ class PTYHandler:
         with self._lock:
             data = self._pty_data.get(key)
             if data:
-                return data.get('screen')
+                return data.get("screen")
         return None
 
     def _strip_ansi(self, text: str) -> str:
         """Strip ANSI escape sequences from text (basic implementation)."""
         import re
+
         # Remove common ANSI sequences
-        ansi_pattern = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]')
-        result = ansi_pattern.sub('', text)
+        ansi_pattern = re.compile(
+            r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]"
+        )
+        result = ansi_pattern.sub("", text)
         # Remove carriage returns
-        result = result.replace('\r', '')
+        result = result.replace("\r", "")
         return result
 
     def send_input(self, name: str, text: str) -> bool:
@@ -1590,7 +1697,7 @@ class PTYHandler:
                 return False
 
             try:
-                os.write(data['fd'], text.encode('utf-8'))
+                os.write(data["fd"], text.encode("utf-8"))
                 return True
             except OSError:
                 return False
@@ -1605,7 +1712,7 @@ class PTYHandler:
                 return False
 
             try:
-                self._set_winsize(data['fd'], rows, cols)
+                self._set_winsize(data["fd"], rows, cols)
                 return True
             except OSError:
                 return False
@@ -1619,19 +1726,19 @@ class PTYHandler:
 
         if data:
             # Signal thread to stop
-            data['stop_event'].set()
+            data["stop_event"].set()
 
             # Close FD
             try:
-                os.close(data['fd'])
+                os.close(data["fd"])
             except OSError:
                 pass
 
             # Terminate process
             try:
-                os.kill(data['pid'], signal.SIGTERM)
+                os.kill(data["pid"], signal.SIGTERM)
                 # Give it a moment, then SIGKILL if needed
-                os.waitpid(data['pid'], os.WNOHANG)
+                os.waitpid(data["pid"], os.WNOHANG)
             except OSError:
                 pass
 
@@ -1653,6 +1760,7 @@ class PTYHandler:
 # =============================================================================
 # CLIPBOARD HELPER - Yank/paste operations
 # =============================================================================
+
 
 class Clipboard:
     """
@@ -1684,7 +1792,9 @@ class Clipboard:
     @property
     def is_empty(self) -> bool:
         """Check if clipboard is empty."""
-        return len(self._buffer) == 0 or (len(self._buffer) == 1 and not self._buffer[0])
+        return len(self._buffer) == 0 or (
+            len(self._buffer) == 1 and not self._buffer[0]
+        )
 
     def clear(self) -> None:
         """Clear clipboard contents."""
@@ -1699,8 +1809,10 @@ class Clipboard:
     def yank_region(
         self,
         canvas,
-        x1: int, y1: int,
-        x2: int, y2: int,
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
     ) -> int:
         """
         Yank a rectangular region from the canvas.
@@ -1757,15 +1869,14 @@ class Clipboard:
         Returns number of lines yanked.
         """
         return self.yank_region(
-            canvas,
-            zone.x, zone.y,
-            zone.x + zone.width - 1, zone.y + zone.height - 1
+            canvas, zone.x, zone.y, zone.x + zone.width - 1, zone.y + zone.height - 1
         )
 
     def paste_to_canvas(
         self,
         canvas,
-        x: int, y: int,
+        x: int,
+        y: int,
         skip_spaces: bool = False,
     ) -> tuple[int, int]:
         """
@@ -1784,7 +1895,7 @@ class Clipboard:
         max_width = 0
         for row, line in enumerate(self._buffer):
             for col, char in enumerate(line):
-                if skip_spaces and char == ' ':
+                if skip_spaces and char == " ":
                     continue
                 canvas.set(x + col, y + row, char)
             max_width = max(max_width, len(line))
@@ -1805,21 +1916,21 @@ class Clipboard:
         """
         try:
             import subprocess
+
             text = self.text
 
             # Try different clipboard commands
             # WSL: prefer clip.exe for Windows clipboard integration
-            for cmd in [['clip.exe'],  # WSL -> Windows
-                        ['xclip', '-selection', 'clipboard'],
-                        ['xsel', '--clipboard', '--input'],
-                        ['pbcopy'],  # macOS
-                        ['clip']]:  # Windows native
+            for cmd in [
+                ["clip.exe"],  # WSL -> Windows
+                ["xclip", "-selection", "clipboard"],
+                ["xsel", "--clipboard", "--input"],
+                ["pbcopy"],  # macOS
+                ["clip"],
+            ]:  # Windows native
                 try:
                     proc = subprocess.run(
-                        cmd,
-                        input=text.encode('utf-8'),
-                        capture_output=True,
-                        timeout=5
+                        cmd, input=text.encode("utf-8"), capture_output=True, timeout=5
                     )
                     if proc.returncode == 0:
                         return True
@@ -1842,20 +1953,18 @@ class Clipboard:
 
             # Try different clipboard commands
             # WSL: prefer powershell.exe for Windows clipboard integration
-            for cmd in [['powershell.exe', '-command', 'Get-Clipboard'],  # WSL -> Windows
-                        ['xclip', '-selection', 'clipboard', '-o'],
-                        ['xsel', '--clipboard', '--output'],
-                        ['pbpaste'],  # macOS
-                        ['powershell', '-command', 'Get-Clipboard']]:  # Windows native
+            for cmd in [
+                ["powershell.exe", "-command", "Get-Clipboard"],  # WSL -> Windows
+                ["xclip", "-selection", "clipboard", "-o"],
+                ["xsel", "--clipboard", "--output"],
+                ["pbpaste"],  # macOS
+                ["powershell", "-command", "Get-Clipboard"],
+            ]:  # Windows native
                 try:
-                    proc = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        timeout=5
-                    )
+                    proc = subprocess.run(cmd, capture_output=True, timeout=5)
                     if proc.returncode == 0:
-                        text = proc.stdout.decode('utf-8', errors='replace')
-                        self._buffer = text.split('\n')
+                        text = proc.stdout.decode("utf-8", errors="replace")
+                        self._buffer = text.split("\n")
                         # Remove trailing empty line from clipboard
                         if self._buffer and not self._buffer[-1]:
                             self._buffer.pop()
@@ -1892,10 +2001,40 @@ PAGER_RENDERERS = {
         # bat --force-colorization helps when no tty
         "wsl_command": "wsl bash -c \"bat --color=always --style=plain --paging=never --force-colorization '{file}'\"",
         "extensions": [
-            ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs", ".c", ".h",
-            ".cpp", ".hpp", ".cs", ".rb", ".php", ".sh", ".bash", ".zsh", ".fish",
-            ".yaml", ".yml", ".json", ".toml", ".xml", ".html", ".css", ".scss",
-            ".sql", ".lua", ".vim", ".conf", ".ini", ".dockerfile", ".makefile",
+            ".py",
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".java",
+            ".go",
+            ".rs",
+            ".c",
+            ".h",
+            ".cpp",
+            ".hpp",
+            ".cs",
+            ".rb",
+            ".php",
+            ".sh",
+            ".bash",
+            ".zsh",
+            ".fish",
+            ".yaml",
+            ".yml",
+            ".json",
+            ".toml",
+            ".xml",
+            ".html",
+            ".css",
+            ".scss",
+            ".sql",
+            ".lua",
+            ".vim",
+            ".conf",
+            ".ini",
+            ".dockerfile",
+            ".makefile",
         ],
         "check": "bat --version",
         "wsl_check": "wsl bash -c 'which bat'",
@@ -1943,12 +2082,7 @@ def check_renderer_available(renderer_name: str, use_wsl: bool = False) -> bool:
         return True
 
     try:
-        result = subprocess.run(
-            check_cmd,
-            shell=True,
-            capture_output=True,
-            timeout=5
-        )
+        result = subprocess.run(check_cmd, shell=True, capture_output=True, timeout=5)
         available = result.returncode == 0
         _renderer_available_cache[cache_key] = available
         return available
@@ -1957,7 +2091,9 @@ def check_renderer_available(renderer_name: str, use_wsl: bool = False) -> bool:
         return False
 
 
-def select_renderer(file_path: str, preferred: str = "auto", use_wsl: bool = False) -> str:
+def select_renderer(
+    file_path: str, preferred: str = "auto", use_wsl: bool = False
+) -> str:
     """
     Select the best renderer for a file based on extension.
 
@@ -1989,7 +2125,9 @@ def select_renderer(file_path: str, preferred: str = "auto", use_wsl: bool = Fal
     return "plain"
 
 
-def render_file_content(file_path: str, renderer: str = "auto", use_wsl: bool = False) -> str:
+def render_file_content(
+    file_path: str, renderer: str = "auto", use_wsl: bool = False
+) -> str:
     """
     Render file content using the specified renderer.
 
@@ -2017,15 +2155,18 @@ def render_file_content(file_path: str, renderer: str = "auto", use_wsl: bool = 
 
     # Handle WSL path conversion if needed
     render_path = file_path
-    if use_wsl and os.name == 'nt':
+    if use_wsl and os.name == "nt":
         # Convert Windows path to WSL path
         # C:\Users\foo -> /mnt/c/Users/foo
-        if len(file_path) >= 2 and file_path[1] == ':':
+        if len(file_path) >= 2 and file_path[1] == ":":
             drive = file_path[0].lower()
-            rest = file_path[2:].replace('\\', '/')
+            rest = file_path[2:].replace("\\", "/")
             render_path = f"/mnt/{drive}{rest}"
 
-    cmd = cmd_template.format(file=render_path)
+    # Security: Quote file path to prevent command injection (Issue #66)
+    # The {file} placeholder in command templates gets user-provided paths
+    quoted_path = shlex.quote(render_path)
+    cmd = cmd_template.format(file=quoted_path)
 
     try:
         result = subprocess.run(
@@ -2034,8 +2175,8 @@ def render_file_content(file_path: str, renderer: str = "auto", use_wsl: bool = 
             capture_output=True,
             text=True,
             timeout=30,
-            encoding='utf-8',
-            errors='replace'
+            encoding="utf-8",
+            errors="replace",
         )
 
         if result.returncode == 0:
@@ -2085,7 +2226,7 @@ def load_pager_content(zone: "Zone", use_wsl: bool = False) -> bool:
     zone.set_styled_content(styled_lines)
 
     # Also store plain lines for search
-    plain_lines = content.split('\n')
+    plain_lines = content.split("\n")
     zone._content_lines = plain_lines
 
     return True
@@ -2114,6 +2255,7 @@ def get_available_renderers(use_wsl: bool = False) -> list[tuple[str, str, bool]
 
 import stat
 import socket as sock_module
+
 
 class FIFOHandler:
     """
@@ -2145,7 +2287,7 @@ class FIFOHandler:
             return False
 
         # FIFO only available on Unix
-        if os.name == 'nt':
+        if os.name == "nt":
             zone.set_content(["[FIFO not available on Windows]"])
             return False
 
@@ -2170,15 +2312,15 @@ class FIFOHandler:
                 target=self._fifo_reader,
                 args=(zone, fifo_path, stop_event),
                 daemon=True,
-                name=f"fifo-{key}"
+                name=f"fifo-{key}",
             )
 
             with self._lock:
                 self._fifo_data[key] = {
-                    'path': fifo_path,
-                    'thread': reader_thread,
-                    'stop_event': stop_event,
-                    'created': True  # We created this FIFO
+                    "path": fifo_path,
+                    "thread": reader_thread,
+                    "stop_event": stop_event,
+                    "created": True,  # We created this FIFO
                 }
 
             reader_thread.start()
@@ -2213,8 +2355,8 @@ class FIFOHandler:
                             break
 
                         # Process incoming data
-                        text = data.decode('utf-8', errors='replace')
-                        for line in text.split('\n'):
+                        text = data.decode("utf-8", errors="replace")
+                        for line in text.split("\n"):
                             if line:  # Skip empty lines
                                 zone.append_content(line.rstrip())
 
@@ -2241,12 +2383,12 @@ class FIFOHandler:
 
         if data:
             # Signal thread to stop
-            data['stop_event'].set()
+            data["stop_event"].set()
 
             # Optionally remove FIFO file if we created it
-            if data.get('created'):
+            if data.get("created"):
                 try:
-                    os.unlink(data['path'])
+                    os.unlink(data["path"])
                 except OSError:
                     pass
 
@@ -2269,6 +2411,7 @@ class FIFOHandler:
 # SOCKET HANDLER - TCP listener for network integration
 # =============================================================================
 
+
 class SocketHandler:
     """
     Handles Socket zones for receiving data over TCP.
@@ -2282,7 +2425,9 @@ class SocketHandler:
 
     def __init__(self, zone_manager: ZoneManager):
         self.zone_manager = zone_manager
-        self._socket_data: dict[str, dict] = {}  # zone_name -> {socket, thread, stop_event}
+        self._socket_data: dict[str, dict] = (
+            {}
+        )  # zone_name -> {socket, thread, stop_event}
         self._lock = threading.Lock()
 
     def create_socket(self, zone: Zone) -> bool:
@@ -2309,7 +2454,7 @@ class SocketHandler:
             server = sock_module.socket(sock_module.AF_INET, sock_module.SOCK_STREAM)
             server.setsockopt(sock_module.SOL_SOCKET, sock_module.SO_REUSEADDR, 1)
             server.settimeout(1.0)  # For responsive shutdown
-            server.bind(('0.0.0.0', port))
+            server.bind(("0.0.0.0", port))
             server.listen(5)
 
             # Start listener thread
@@ -2318,15 +2463,15 @@ class SocketHandler:
                 target=self._socket_listener,
                 args=(zone, server, stop_event),
                 daemon=True,
-                name=f"socket-{key}"
+                name=f"socket-{key}",
             )
 
             with self._lock:
                 self._socket_data[key] = {
-                    'socket': server,
-                    'port': port,
-                    'thread': listener_thread,
-                    'stop_event': stop_event
+                    "socket": server,
+                    "port": port,
+                    "thread": listener_thread,
+                    "stop_event": stop_event,
                 }
 
             listener_thread.start()
@@ -2337,7 +2482,9 @@ class SocketHandler:
             zone.set_content([f"[Socket error: {e}]"])
             return False
 
-    def _socket_listener(self, zone: Zone, server: sock_module.socket, stop_event: threading.Event) -> None:
+    def _socket_listener(
+        self, zone: Zone, server: sock_module.socket, stop_event: threading.Event
+    ) -> None:
         """Background thread that accepts connections and reads data."""
         content_h = zone.height - 2
 
@@ -2363,10 +2510,10 @@ class SocketHandler:
                             break
 
                     if data:
-                        text = data.decode('utf-8', errors='replace')
+                        text = data.decode("utf-8", errors="replace")
                         # Add source info
                         zone.append_content(f"[{addr[0]}:{addr[1]}]")
-                        for line in text.split('\n'):
+                        for line in text.split("\n"):
                             if line.strip():
                                 zone.append_content(line.rstrip())
 
@@ -2390,11 +2537,11 @@ class SocketHandler:
 
         if data:
             # Signal thread to stop
-            data['stop_event'].set()
+            data["stop_event"].set()
 
             # Close socket
             try:
-                data['socket'].close()
+                data["socket"].close()
             except OSError:
                 pass
 

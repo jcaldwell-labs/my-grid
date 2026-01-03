@@ -58,7 +58,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
 # Canvas dimensions (12x typical terminal)
-CANVAS_WIDTH = 960   # 80 * 12
+CANVAS_WIDTH = 960  # 80 * 12
 CANVAS_HEIGHT = 288  # 24 * 12
 
 # Animation settings
@@ -70,6 +70,7 @@ COMMAND_DELAY = 0.05
 @dataclass
 class Cluster:
     """A cluster of sticky notes at a location."""
+
     name: str
     bookmark: str
     center_x: int
@@ -93,11 +94,14 @@ def ctl(*args, host=DEFAULT_HOST, port=DEFAULT_PORT) -> tuple[int, str]:
     return result.returncode, result.stdout + result.stderr
 
 
-def ctl_batch(commands: list[str], host=DEFAULT_HOST, port=DEFAULT_PORT) -> tuple[int, str]:
+def ctl_batch(
+    commands: list[str], host=DEFAULT_HOST, port=DEFAULT_PORT
+) -> tuple[int, str]:
     """Execute batch commands."""
     import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write('\n'.join(commands))
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write("\n".join(commands))
         temp_path = f.name
 
     result = ctl("batch", temp_path, host=host, port=port)
@@ -125,13 +129,14 @@ def get_current_position() -> tuple[int, int]:
     code, output = ctl("status", "--json")
     if code == 0:
         import json
+
         try:
             # Parse the nested JSON
-            data = json.loads(output.strip().split('\n')[0])
-            if data.get('status') == 'ok':
-                state = json.loads(data.get('message', '{}'))
-                return state['cursor']['x'], state['cursor']['y']
-        except:
+            data = json.loads(output.strip().split("\n")[0])
+            if data.get("status") == "ok":
+                state = json.loads(data.get("message", "{}"))
+                return state["cursor"]["x"], state["cursor"]["y"]
+        except (json.JSONDecodeError, KeyError, TypeError):
             pass
     return 0, 0
 
@@ -151,7 +156,11 @@ def smooth_scroll_to(target_x: int, target_y: int, steps: int = SMOOTH_SCROLL_ST
 
 
 def run_shell_filter(text: str, filter_cmd: str) -> Optional[str]:
-    """Run text through a shell filter command."""
+    """Run text through a shell filter command.
+
+    Note: Uses shell=True intentionally for demo scripts - command is
+    constructed internally, not from user input.
+    """
     try:
         result = subprocess.run(
             filter_cmd,
@@ -159,11 +168,11 @@ def run_shell_filter(text: str, filter_cmd: str) -> Optional[str]:
             input=text,
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         if result.returncode == 0:
             return result.stdout
-    except:
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
         pass
     return None
 
@@ -172,7 +181,7 @@ def draw_figlet_text(x: int, y: int, text: str, font: str = "standard"):
     """Draw figlet text at position."""
     figlet_output = run_shell_filter(text, f"figlet -f {font}")
     if figlet_output:
-        lines = figlet_output.split('\n')
+        lines = figlet_output.split("\n")
         commands = []
         for i, line in enumerate(lines):
             if line:
@@ -192,7 +201,7 @@ def draw_boxed_text(x: int, y: int, text: str, style: str = "stone") -> int:
     """Draw text in a boxes-style box. Returns height."""
     boxed = run_shell_filter(text, f"boxes -d {style}")
     if boxed:
-        lines = boxed.split('\n')
+        lines = boxed.split("\n")
         commands = []
         for i, line in enumerate(lines):
             if line:
@@ -210,7 +219,9 @@ def draw_boxed_text(x: int, y: int, text: str, style: str = "stone") -> int:
         return 5
 
 
-def draw_sticky_note(x: int, y: int, title: str, lines: list[str], style: str = "stone"):
+def draw_sticky_note(
+    x: int, y: int, title: str, lines: list[str], style: str = "stone"
+):
     """Draw a sticky note with title and content."""
     # Combine title and content
     content = title + "\n" + "-" * len(title)
@@ -229,10 +240,12 @@ def draw_simple_box(x: int, y: int, width: int, height: int, label: str = ""):
     if label:
         label_x = x + (width - len(label)) // 2
         label_y = y + height // 2
-        commands.extend([
-            f":goto {label_x} {label_y}",
-            f":text {label}",
-        ])
+        commands.extend(
+            [
+                f":goto {label_x} {label_y}",
+                f":text {label}",
+            ]
+        )
     ctl_batch(commands)
 
 
@@ -259,9 +272,12 @@ def draw_arrow(x1: int, y1: int, x2: int, y2: int, char: str = "-"):
 # CLUSTER DRAWING FUNCTIONS
 # ============================================================================
 
+
 def draw_cluster_ideas(cluster: Cluster):
     """Draw the Ideas cluster - brainstorming sticky notes."""
-    print(f"  Drawing {cluster.name} cluster at ({cluster.center_x}, {cluster.center_y})...")
+    print(
+        f"  Drawing {cluster.name} cluster at ({cluster.center_x}, {cluster.center_y})..."
+    )
 
     base_x, base_y = cluster.center_x - 40, cluster.center_y - 20
 
@@ -271,11 +287,41 @@ def draw_cluster_ideas(cluster: Cluster):
 
     # Sticky notes scattered around
     notes = [
-        (base_x + 5, base_y + 8, "Feature", ["- Dark mode", "- Export SVG", "- Templates"], "stone"),
-        (base_x + 35, base_y + 6, "UX Ideas", ["- Shortcuts", "- Tutorials", "- Themes"], "ansi"),
-        (base_x + 15, base_y + 18, "Tech", ["- WebSocket", "- IndexedDB", "- WASM"], "stone"),
-        (base_x + 50, base_y + 15, "Future", ["- Plugins", "- Mobile", "- Cloud sync"], "ansi"),
-        (base_x + 70, base_y + 8, "Quick Win", ["- Bug #42", "- Docs", "- Tests"], "stone"),
+        (
+            base_x + 5,
+            base_y + 8,
+            "Feature",
+            ["- Dark mode", "- Export SVG", "- Templates"],
+            "stone",
+        ),
+        (
+            base_x + 35,
+            base_y + 6,
+            "UX Ideas",
+            ["- Shortcuts", "- Tutorials", "- Themes"],
+            "ansi",
+        ),
+        (
+            base_x + 15,
+            base_y + 18,
+            "Tech",
+            ["- WebSocket", "- IndexedDB", "- WASM"],
+            "stone",
+        ),
+        (
+            base_x + 50,
+            base_y + 15,
+            "Future",
+            ["- Plugins", "- Mobile", "- Cloud sync"],
+            "ansi",
+        ),
+        (
+            base_x + 70,
+            base_y + 8,
+            "Quick Win",
+            ["- Bug #42", "- Docs", "- Tests"],
+            "stone",
+        ),
     ]
 
     for x, y, title, lines, style in notes:
@@ -289,7 +335,9 @@ def draw_cluster_ideas(cluster: Cluster):
 
 def draw_cluster_sprint(cluster: Cluster):
     """Draw the Sprint cluster - kanban-style task board."""
-    print(f"  Drawing {cluster.name} cluster at ({cluster.center_x}, {cluster.center_y})...")
+    print(
+        f"  Drawing {cluster.name} cluster at ({cluster.center_x}, {cluster.center_y})..."
+    )
 
     base_x, base_y = cluster.center_x - 60, cluster.center_y - 25
 
@@ -336,7 +384,9 @@ def draw_cluster_sprint(cluster: Cluster):
 
 def draw_cluster_architecture(cluster: Cluster):
     """Draw the Architecture cluster - system diagram."""
-    print(f"  Drawing {cluster.name} cluster at ({cluster.center_x}, {cluster.center_y})...")
+    print(
+        f"  Drawing {cluster.name} cluster at ({cluster.center_x}, {cluster.center_y})..."
+    )
 
     base_x, base_y = cluster.center_x - 50, cluster.center_y - 30
 
@@ -384,7 +434,9 @@ def draw_cluster_architecture(cluster: Cluster):
 
 def draw_cluster_notes(cluster: Cluster):
     """Draw the Notes cluster - meeting notes and docs."""
-    print(f"  Drawing {cluster.name} cluster at ({cluster.center_x}, {cluster.center_y})...")
+    print(
+        f"  Drawing {cluster.name} cluster at ({cluster.center_x}, {cluster.center_y})..."
+    )
 
     base_x, base_y = cluster.center_x - 50, cluster.center_y - 25
 
@@ -408,7 +460,7 @@ Action Items:
 [ ] Schedule sprint review
 [x] Update dependencies"""
 
-    lines = meeting_notes.split('\n')
+    lines = meeting_notes.split("\n")
     commands = []
     for i, line in enumerate(lines):
         commands.append(f":goto {base_x + 5} {base_y + 8 + i}")
@@ -449,7 +501,9 @@ def setup_bookmarks():
     print("\nSetting up bookmarks...")
     for cluster in CLUSTERS:
         ctl("exec", f":mark {cluster.bookmark} {cluster.center_x} {cluster.center_y}")
-        print(f"  Bookmark '{cluster.bookmark}' -> {cluster.name} ({cluster.center_x}, {cluster.center_y})")
+        print(
+            f"  Bookmark '{cluster.bookmark}' -> {cluster.name} ({cluster.center_x}, {cluster.center_y})"
+        )
         wait(0.1)
 
 
@@ -551,7 +605,9 @@ def run_demo():
     print(output)
     print("=" * 60)
     print("\nDemo complete!")
-    print(f"Canvas populated with 4 clusters across {CANVAS_WIDTH}x{CANVAS_HEIGHT} area")
+    print(
+        f"Canvas populated with 4 clusters across {CANVAS_WIDTH}x{CANVAS_HEIGHT} area"
+    )
     print("Use bookmarks 'i', 's', 'a', 'n' to jump between clusters")
 
     return 0
@@ -575,13 +631,15 @@ Examples:
   python demo/sticky_notes_demo.py              # Full demo
   python demo/sticky_notes_demo.py --no-tour    # Skip navigation tour
   python demo/sticky_notes_demo.py --draw-only  # Draw only, no navigation
-"""
+""",
     )
 
-    parser.add_argument('--host', default=DEFAULT_HOST)
-    parser.add_argument('--port', type=int, default=DEFAULT_PORT)
-    parser.add_argument('--no-tour', action='store_true', help='Skip navigation tour')
-    parser.add_argument('--draw-only', action='store_true', help='Only draw, skip all navigation')
+    parser.add_argument("--host", default=DEFAULT_HOST)
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--no-tour", action="store_true", help="Skip navigation tour")
+    parser.add_argument(
+        "--draw-only", action="store_true", help="Only draw, skip all navigation"
+    )
 
     args = parser.parse_args()
 
