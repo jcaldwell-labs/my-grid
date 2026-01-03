@@ -9,7 +9,7 @@ from canvas import Canvas
 from viewport import Viewport
 from input import Action, InputEvent
 from modes import (
-    Mode, ModeConfig, CommandBuffer, ModeResult, ModeStateMachine
+    Mode, ModeConfig, CommandBuffer, ModeResult, ModeStateMachine, Selection
 )
 
 
@@ -365,6 +365,295 @@ class TestModeStateMachine:
 
         result = self.sm.process(action_event(Action.NEWLINE))
         assert "Custom" in result.message
+
+
+class TestSelection:
+    """Tests for the Selection dataclass."""
+
+    def test_selection_properties(self):
+        """Test basic Selection properties."""
+        sel = Selection(anchor_x=5, anchor_y=10, cursor_x=15, cursor_y=20)
+        assert sel.x1 == 5
+        assert sel.y1 == 10
+        assert sel.x2 == 15
+        assert sel.y2 == 20
+        assert sel.width == 11  # 15 - 5 + 1
+        assert sel.height == 11  # 20 - 10 + 1
+
+    def test_selection_inverted(self):
+        """Test Selection with cursor before anchor (inverted)."""
+        sel = Selection(anchor_x=15, anchor_y=20, cursor_x=5, cursor_y=10)
+        # x1, y1 should still be the min values
+        assert sel.x1 == 5
+        assert sel.y1 == 10
+        assert sel.x2 == 15
+        assert sel.y2 == 20
+        assert sel.width == 11
+        assert sel.height == 11
+
+    def test_selection_zero_size(self):
+        """Test Selection with cursor at anchor (single cell)."""
+        sel = Selection(anchor_x=5, anchor_y=5, cursor_x=5, cursor_y=5)
+        assert sel.x1 == 5
+        assert sel.y1 == 5
+        assert sel.x2 == 5
+        assert sel.y2 == 5
+        assert sel.width == 1
+        assert sel.height == 1
+
+    def test_selection_contains(self):
+        """Test contains() method."""
+        sel = Selection(anchor_x=5, anchor_y=5, cursor_x=10, cursor_y=10)
+        # Inside
+        assert sel.contains(7, 7)
+        # Edges
+        assert sel.contains(5, 5)
+        assert sel.contains(10, 10)
+        assert sel.contains(5, 10)
+        assert sel.contains(10, 5)
+        # Outside
+        assert not sel.contains(4, 7)
+        assert not sel.contains(11, 7)
+        assert not sel.contains(7, 4)
+        assert not sel.contains(7, 11)
+
+    def test_selection_update_cursor(self):
+        """Test update_cursor() method."""
+        sel = Selection(anchor_x=5, anchor_y=5, cursor_x=5, cursor_y=5)
+        sel.update_cursor(10, 15)
+        assert sel.cursor_x == 10
+        assert sel.cursor_y == 15
+        assert sel.anchor_x == 5  # Anchor unchanged
+        assert sel.anchor_y == 5
+
+
+class TestVisualMode:
+    """Tests for VISUAL mode (Issue #53).
+
+    Test cases from VISUAL-MODE-TEST-PLAN.md:
+    - TC1: Enter/Exit VISUAL mode
+    - TC2: Extend selection with movement
+    - TC3: Shrink selection
+    - TC4: Yank selection to clipboard
+    - TC5: Delete selection (clear cells)
+    - TC6: Fill selection with character
+    - TC7: Selection highlighting (renderer test - not covered here)
+
+    Edge cases:
+    - EC1: Zero-size selection (cursor == anchor)
+    - EC5: Selection inversion (cursor past anchor)
+    """
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.canvas = Canvas()
+        self.viewport = Viewport(width=80, height=24)
+        self.sm = ModeStateMachine(self.canvas, self.viewport)
+
+    # TC1: Enter/Exit VISUAL mode
+    def test_enter_visual_mode(self):
+        """TC1a: Enter VISUAL mode from NAV with 'v' key."""
+        self.viewport.cursor.set(10, 20)
+        result = self.sm.process(char_event('v'))
+
+        assert result.mode_changed
+        assert result.new_mode == Mode.VISUAL
+        assert self.sm.mode == Mode.VISUAL
+        assert self.sm.selection is not None
+        # Selection starts with anchor and cursor at same position
+        assert self.sm.selection.anchor_x == 10
+        assert self.sm.selection.anchor_y == 20
+        assert self.sm.selection.cursor_x == 10
+        assert self.sm.selection.cursor_y == 20
+        assert "VISUAL" in result.message
+        assert "(1x1)" in result.message
+
+    def test_exit_visual_mode_esc(self):
+        """TC1b: Exit VISUAL mode with ESC, selection cleared."""
+        self.viewport.cursor.set(10, 20)
+        self.sm.process(char_event('v'))  # Enter VISUAL
+        assert self.sm.selection is not None
+
+        result = self.sm.process(action_event(Action.EXIT_MODE))
+        assert result.mode_changed
+        assert self.sm.mode == Mode.NAV
+        assert self.sm.selection is None
+        assert "cancelled" in result.message.lower()
+
+    def test_enter_visual_creates_fresh_selection(self):
+        """TC1c: Entering VISUAL again creates fresh selection."""
+        self.viewport.cursor.set(10, 20)
+        self.sm.process(char_event('v'))  # Enter VISUAL
+        self.sm.process(action_event(Action.MOVE_RIGHT))  # Extend
+        self.sm.process(action_event(Action.EXIT_MODE))  # Exit
+
+        # Enter again at different position
+        self.viewport.cursor.set(50, 60)
+        result = self.sm.process(char_event('v'))
+
+        assert self.sm.selection.anchor_x == 50
+        assert self.sm.selection.anchor_y == 60
+        assert self.sm.selection.width == 1
+        assert self.sm.selection.height == 1
+
+    # TC2: Extend selection with movement
+    def test_extend_selection_right(self):
+        """TC2a: Moving right extends selection."""
+        self.viewport.cursor.set(10, 10)
+        self.sm.process(char_event('v'))
+
+        result = self.sm.process(action_event(Action.MOVE_RIGHT))
+        assert self.sm.selection.width == 2
+        assert self.sm.selection.height == 1
+        assert self.viewport.cursor.x == 11
+        assert "(2x1)" in result.message
+
+    def test_extend_selection_down(self):
+        """TC2b: Moving down extends selection."""
+        self.viewport.cursor.set(10, 10)
+        self.sm.process(char_event('v'))
+
+        result = self.sm.process(action_event(Action.MOVE_DOWN))
+        assert self.sm.selection.width == 1
+        assert self.sm.selection.height == 2
+        assert self.viewport.cursor.y == 11
+        assert "(1x2)" in result.message
+
+    def test_extend_selection_diagonal(self):
+        """TC2c: Moving in multiple directions creates rectangle."""
+        self.viewport.cursor.set(10, 10)
+        self.sm.process(char_event('v'))
+
+        self.sm.process(action_event(Action.MOVE_RIGHT))
+        self.sm.process(action_event(Action.MOVE_RIGHT))
+        result = self.sm.process(action_event(Action.MOVE_DOWN))
+
+        assert self.sm.selection.width == 3
+        assert self.sm.selection.height == 2
+        assert "(3x2)" in result.message
+
+    def test_extend_selection_fast_movement(self):
+        """TC2d: Fast movement extends selection by fast_step."""
+        self.viewport.cursor.set(10, 10)
+        self.sm.process(char_event('v'))
+
+        result = self.sm.process(action_event(Action.MOVE_RIGHT_FAST))
+        assert self.sm.selection.width == 11  # 10 + 1
+        assert self.viewport.cursor.x == 20
+
+    # TC3: Shrink selection
+    def test_shrink_selection(self):
+        """TC3: Moving back towards anchor shrinks selection."""
+        self.viewport.cursor.set(10, 10)
+        self.sm.process(char_event('v'))
+        self.sm.process(action_event(Action.MOVE_RIGHT))
+        self.sm.process(action_event(Action.MOVE_RIGHT))
+        assert self.sm.selection.width == 3
+
+        # Move back
+        result = self.sm.process(action_event(Action.MOVE_LEFT))
+        assert self.sm.selection.width == 2
+        assert "(2x1)" in result.message
+
+    # TC4: Yank selection
+    def test_yank_selection(self):
+        """TC4: Yank selection returns command with coordinates."""
+        self.viewport.cursor.set(5, 10)
+        self.sm.process(char_event('v'))
+        self.sm.process(action_event(Action.MOVE_RIGHT))
+        self.sm.process(action_event(Action.MOVE_RIGHT))
+        self.sm.process(action_event(Action.MOVE_DOWN))
+
+        result = self.sm.process(char_event('y'))
+
+        assert result.mode_changed
+        assert self.sm.mode == Mode.NAV
+        assert self.sm.selection is None
+        assert result.command is not None
+        assert "yank_selection" in result.command
+        assert "5" in result.command  # x1
+        assert "10" in result.command  # y1
+        assert "3" in result.command  # width
+        assert "2" in result.command  # height
+
+    # TC5: Delete selection
+    def test_delete_selection(self):
+        """TC5: Delete selection returns command with coordinates."""
+        self.viewport.cursor.set(5, 10)
+        self.sm.process(char_event('v'))
+        self.sm.process(action_event(Action.MOVE_RIGHT))
+        self.sm.process(action_event(Action.MOVE_DOWN))
+
+        result = self.sm.process(char_event('d'))
+
+        assert result.mode_changed
+        assert self.sm.mode == Mode.NAV
+        assert self.sm.selection is None
+        assert result.command is not None
+        assert "delete_selection" in result.command
+        assert "5" in result.command  # x1
+        assert "10" in result.command  # y1
+
+    # TC6: Fill selection
+    def test_fill_selection(self):
+        """TC6: Fill selection enters COMMAND mode with pre-filled buffer."""
+        self.viewport.cursor.set(5, 10)
+        self.sm.process(char_event('v'))
+        self.sm.process(action_event(Action.MOVE_RIGHT))
+        self.sm.process(action_event(Action.MOVE_DOWN))
+
+        result = self.sm.process(char_event('f'))
+
+        assert result.mode_changed
+        assert self.sm.mode == Mode.COMMAND
+        assert self.sm.selection is None
+        assert "fill" in self.sm.command_buffer.text
+        assert "5 10" in self.sm.command_buffer.text  # x1, y1
+        assert "Fill" in result.message
+
+    # EC1: Zero-size selection
+    def test_zero_size_selection(self):
+        """EC1: Selection with cursor at anchor works correctly."""
+        self.viewport.cursor.set(10, 10)
+        self.sm.process(char_event('v'))
+
+        # Selection should be 1x1
+        assert self.sm.selection.width == 1
+        assert self.sm.selection.height == 1
+        assert self.sm.selection.contains(10, 10)
+        assert not self.sm.selection.contains(11, 10)
+
+        # Yank should still work
+        result = self.sm.process(char_event('y'))
+        assert "1" in result.command  # width
+        assert "1" in result.command  # height
+
+    # EC5: Selection inversion
+    def test_selection_inversion(self):
+        """EC5: Selection works when cursor moves before anchor."""
+        self.viewport.cursor.set(10, 10)
+        self.sm.process(char_event('v'))
+
+        # Move cursor before anchor
+        self.sm.process(action_event(Action.MOVE_LEFT))
+        self.sm.process(action_event(Action.MOVE_UP))
+
+        # Selection should correctly compute bounds
+        assert self.sm.selection.x1 == 9  # cursor moved left
+        assert self.sm.selection.y1 == 9  # cursor moved up
+        assert self.sm.selection.x2 == 10  # anchor
+        assert self.sm.selection.y2 == 10  # anchor
+        assert self.sm.selection.width == 2
+        assert self.sm.selection.height == 2
+
+    def test_visual_mode_recovery_without_selection(self):
+        """Test graceful recovery if selection is None in VISUAL mode."""
+        self.sm.set_mode(Mode.VISUAL)
+        self.sm.selection = None  # Simulate bug
+
+        result = self.sm.process(action_event(Action.MOVE_RIGHT))
+        # Should recover to NAV mode
+        assert self.sm.mode == Mode.NAV
 
 
 def test_command_buffer():

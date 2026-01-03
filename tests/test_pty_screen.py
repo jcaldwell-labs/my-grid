@@ -26,14 +26,24 @@ class TestPTYScreen:
         assert "Line 2" in lines[1]
 
     def test_backspace(self):
-        """Test backspace deletes previous character."""
-        screen = PTYScreen(80, 24)
-        screen.feed("test\b")  # Type "test", backspace once
+        """Test backspace moves cursor back (standard terminal behavior).
 
+        Note: Real terminal backspace (\b) only moves cursor left.
+        It does NOT delete the character. To erase, you need \b + overwrite.
+        This is correct VT100/ANSI terminal behavior.
+        """
+        screen = PTYScreen(80, 24)
+
+        # Test 1: Backspace moves cursor
+        screen.feed("test\b")
+        x, y = screen.get_cursor_position()
+        assert x == 3  # Cursor moved back from position 4 to 3
+
+        # Test 2: Backspace + space = erase (real terminal delete pattern)
+        screen = PTYScreen(80, 24)
+        screen.feed("test\b ")  # Backspace, then space overwrites 't'
         lines = screen.get_display_lines()
-        # Should show "tes" (last 't' deleted)
-        assert "tes" in lines[0]
-        assert "test" not in lines[0]
+        assert "tes " in lines[0]  # Last 't' replaced with space
 
     def test_carriage_return(self):
         """Test carriage return returns to start of line."""

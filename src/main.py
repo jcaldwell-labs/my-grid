@@ -14,6 +14,7 @@ from pathlib import Path
 
 from canvas import Canvas, parse_color, COLOR_NUMBERS
 from viewport import Viewport
+from undo import UndoManager
 from renderer import Renderer, GridSettings, GridLineMode, create_status_line
 from input import InputHandler, Action, InputEvent
 from modes import Mode, ModeConfig, ModeStateMachine, ModeResult
@@ -21,18 +22,33 @@ from project import Project, add_recent_project, suggest_filename, SessionManage
 from command_queue import CommandQueue, CommandResponse, send_response
 from server import APIServer, ServerConfig
 from zones import (
-    Zone, ZoneManager, ZoneExecutor, ZoneType, ZoneConfig,
-    PTYHandler, PTY_AVAILABLE, Clipboard,
-    FIFOHandler, SocketHandler,
-    get_border_style, set_border_style, list_border_styles,
-    load_pager_content, get_available_renderers, strip_ansi
+    Zone,
+    ZoneManager,
+    ZoneExecutor,
+    ZoneType,
+    ZoneConfig,
+    PTYHandler,
+    PTY_AVAILABLE,
+    Clipboard,
+    FIFOHandler,
+    SocketHandler,
+    get_border_style,
+    set_border_style,
+    list_border_styles,
+    load_pager_content,
+    get_available_renderers,
+    strip_ansi,
 )
 from layouts import LayoutManager, install_default_layouts
 from external import (
-    tool_available, get_tool_status,
-    draw_box, get_boxes_styles,
-    draw_figlet, get_figlet_fonts,
-    pipe_command, write_lines_to_canvas
+    tool_available,
+    get_tool_status,
+    draw_box,
+    get_boxes_styles,
+    draw_figlet,
+    get_figlet_fonts,
+    pipe_command,
+    write_lines_to_canvas,
 )
 from joystick import JoystickHandler, JoystickConfig, JoystickDirection
 
@@ -46,7 +62,9 @@ class Application:
     Coordinates all components and runs the main loop.
     """
 
-    def __init__(self, stdscr: "curses.window", server_config: ServerConfig | None = None):
+    def __init__(
+        self, stdscr: "curses.window", server_config: ServerConfig | None = None
+    ):
         self.stdscr = stdscr
 
         # Core components
@@ -55,8 +73,9 @@ class Application:
         self.renderer = Renderer(stdscr)
         self.input_handler = InputHandler()
         self.mode_config = ModeConfig()
+        self.undo_manager = UndoManager(max_history=100)
         self.state_machine = ModeStateMachine(
-            self.canvas, self.viewport, self.mode_config
+            self.canvas, self.viewport, self.mode_config, undo_manager=self.undo_manager
         )
         self.project = Project()
         self.zone_manager = ZoneManager()
@@ -112,7 +131,9 @@ class Application:
     def _register_commands(self) -> None:
         """Register application-level commands."""
         self.state_machine.register_command("save", self._cmd_save)
-        self.state_machine.register_command("w", self._cmd_write)  # vim-style :w [filename]
+        self.state_machine.register_command(
+            "w", self._cmd_write
+        )  # vim-style :w [filename]
         self.state_machine.register_command("write", self._cmd_write)
         self.state_machine.register_command("saveas", self._cmd_save_as)
         self.state_machine.register_command("open", self._cmd_open)
@@ -145,6 +166,9 @@ class Application:
         self.state_machine.register_command("palette", self._cmd_palette)
         self.state_machine.register_command("draw", self._cmd_draw)
         self.state_machine.register_command("shader", self._cmd_shader)
+        self.state_machine.register_command("undo", self._cmd_undo)
+        self.state_machine.register_command("redo", self._cmd_redo)
+        self.state_machine.register_command("history", self._cmd_history)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -167,12 +191,14 @@ class Application:
             return
 
         try:
-            if filepath.suffix.lower() == '.json':
+            if filepath.suffix.lower() == ".json":
                 self.project = Project.load(
-                    filepath, self.canvas, self.viewport,
+                    filepath,
+                    self.canvas,
+                    self.viewport,
                     grid_settings=self.renderer.grid,
                     bookmarks=self.state_machine.bookmarks,
-                    zones=self.zone_manager
+                    zones=self.zone_manager,
                 )
                 add_recent_project(filepath)
                 # Initialize PAGER zones with content
@@ -180,9 +206,7 @@ class Application:
                 self._show_message(f"Loaded: {filepath.name}")
             else:
                 # Treat as text file
-                self.project = Project.import_text(
-                    filepath, self.canvas, self.viewport
-                )
+                self.project = Project.import_text(filepath, self.canvas, self.viewport)
                 self._show_message(f"Imported: {filepath.name}")
         except Exception as e:
             self._show_message(f"Error loading: {e}")
@@ -225,7 +249,9 @@ class Application:
                 # Calculate zone center point
                 center_x = zone.x + (zone.width // 2)
                 center_y = zone.y + (zone.height // 2)
-                self.state_machine.bookmarks.set(zone.bookmark, center_x, center_y, zone.name)
+                self.state_machine.bookmarks.set(
+                    zone.bookmark, center_x, center_y, zone.name
+                )
 
     def _init_pager_zones(self) -> None:
         """Initialize PAGER zones by loading their content."""
@@ -264,12 +290,20 @@ class Application:
             if zone and zone.zone_type == ZoneType.PAGER:
                 line = zone.config.scroll_offset + 1
                 total = zone.pager_line_count
-                pct = int(100 * zone.config.scroll_offset / max(1, total - zone.pager_visible_lines)) if total > zone.pager_visible_lines else 100
+                pct = (
+                    int(
+                        100
+                        * zone.config.scroll_offset
+                        / max(1, total - zone.pager_visible_lines)
+                    )
+                    if total > zone.pager_visible_lines
+                    else 100
+                )
                 search_info = ""
                 if zone.config.search_term and zone.config.search_matches:
                     idx = zone.config.search_index + 1
                     cnt = len(zone.config.search_matches)
-                    search_info = f" \"{zone.config.search_term}\" {idx}/{cnt}"
+                    search_info = f' "{zone.config.search_term}" {idx}/{cnt}'
                 return f" [PAGER] {self._focused_pager} - Line {line}/{total} ({pct}%){search_info} - j/k:scroll g/G:top/bottom n/N:match q:exit"
 
         # Show command buffer in command mode
@@ -308,7 +342,7 @@ class Application:
 
         # Cell at cursor
         cell_char = self.canvas.get_char(cursor.x, cursor.y)
-        if cell_char == ' ':
+        if cell_char == " ":
             cell_str = "·"
         else:
             cell_str = f"'{cell_char}'"
@@ -387,17 +421,20 @@ class Application:
                 # Auto-save session if interval elapsed
                 if self.project.dirty:
                     self.session_manager.auto_save(
-                        self.canvas, self.viewport,
+                        self.canvas,
+                        self.viewport,
                         grid_settings=self.renderer.grid,
                         bookmarks=self.state_machine.bookmarks,
-                        zones=self.zone_manager
+                        zones=self.zone_manager,
                     )
 
                 # Render frame
                 status = self._get_status_line()
                 self.renderer.render(
-                    self.canvas, self.viewport, status,
-                    selection=self.state_machine.selection
+                    self.canvas,
+                    self.viewport,
+                    status,
+                    selection=self.state_machine.selection,
                 )
 
                 # Get input (may timeout if server/joystick mode)
@@ -415,7 +452,10 @@ class Application:
                 if self._focused_pty:
                     # DEBUG: Show key code for Enter debugging
                     if key == 10 or key == 13 or key == curses.KEY_ENTER:
-                        self._show_message(f"DEBUG: Enter key={key} (10=\\n, 13=\\r, {curses.KEY_ENTER}=KEY_ENTER)", frames=180)
+                        self._show_message(
+                            f"DEBUG: Enter key={key} (10=\\n, 13=\\r, {curses.KEY_ENTER}=KEY_ENTER)",
+                            frames=180,
+                        )
 
                     if key == 27:  # Escape - unfocus PTY
                         self._focused_pty = None
@@ -453,7 +493,9 @@ class Application:
                         zone = self.zone_manager.get(current_zone.name)
                         line = zone.config.scroll_offset + 1
                         total = zone.pager_line_count
-                        self._show_message(f"PAGER focused: {current_zone.name} - Line {line}/{total}")
+                        self._show_message(
+                            f"PAGER focused: {current_zone.name} - Line {line}/{total}"
+                        )
                         continue
 
                 # Process through state machine
@@ -473,12 +515,16 @@ class Application:
 
                 # Handle grid toggles (not mode-dependent)
                 if event.action == Action.TOGGLE_GRID_MAJOR:
-                    self.renderer.grid.show_major_lines = not self.renderer.grid.show_major_lines
+                    self.renderer.grid.show_major_lines = (
+                        not self.renderer.grid.show_major_lines
+                    )
                     self._show_message(
                         f"Major grid: {'ON' if self.renderer.grid.show_major_lines else 'OFF'}"
                     )
                 elif event.action == Action.TOGGLE_GRID_MINOR:
-                    self.renderer.grid.show_minor_lines = not self.renderer.grid.show_minor_lines
+                    self.renderer.grid.show_minor_lines = (
+                        not self.renderer.grid.show_minor_lines
+                    )
                     self._show_message(
                         f"Minor grid: {'ON' if self.renderer.grid.show_minor_lines else 'OFF'}"
                     )
@@ -487,6 +533,12 @@ class Application:
                     self._show_message(
                         f"Origin marker: {'ON' if self.renderer.grid.show_origin else 'OFF'}"
                     )
+
+                # Handle undo/redo
+                if event.action == Action.UNDO:
+                    self._do_undo()
+                elif event.action == Action.REDO:
+                    self._do_redo()
 
                 # Handle file operations
                 if event.action == Action.SAVE:
@@ -534,7 +586,7 @@ class Application:
                 response = CommandResponse(
                     status="ok",
                     message=result.message or "OK",
-                    data=result.data if hasattr(result, 'data') else None
+                    data=result.data if hasattr(result, "data") else None,
                 )
             except Exception as e:
                 response = CommandResponse(status="error", message=str(e))
@@ -548,11 +600,12 @@ class Application:
 
         # Debug logging
         import logging
+
         _joy_log = logging.getLogger("joystick_debug")
         if not _joy_log.handlers:
             _joy_log.setLevel(logging.DEBUG)
             fh = logging.FileHandler("joystick_debug.log")
-            fh.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+            fh.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
             _joy_log.addHandler(fh)
 
         # Get movement from joystick (handles repeat timing internally)
@@ -565,7 +618,9 @@ class Application:
             if mode == Mode.NAV or mode == Mode.EDIT:
                 # Move cursor and ensure it stays visible (auto-pan)
                 self.viewport.move_cursor(dx, dy)
-                self.viewport.ensure_cursor_visible(margin=self.mode_config.scroll_margin)
+                self.viewport.ensure_cursor_visible(
+                    margin=self.mode_config.scroll_margin
+                )
             elif mode == Mode.PAN:
                 # Pan viewport (cursor follows)
                 self.viewport.pan(dx, dy)
@@ -588,7 +643,9 @@ class Application:
 
         # Debug: log button presses and pen state
         if buttons:
-            _joy_log.debug(f"Buttons pressed: {buttons}, mode={mode.name}, pen_down_before={self.state_machine._draw_pen_down}")
+            _joy_log.debug(
+                f"Buttons pressed: {buttons}, mode={mode.name}, pen_down_before={self.state_machine._draw_pen_down}"
+            )
 
         for btn in buttons:
             if btn == 0:  # A button - confirm/select
@@ -599,13 +656,17 @@ class Application:
                 elif mode == Mode.DRAW:
                     # In DRAW mode, toggle pen up/down (with frame guard)
                     if self.state_machine._pen_toggled_this_frame:
-                        _joy_log.debug(f"BTN0 in DRAW: BLOCKED by frame guard (already toggled)")
+                        _joy_log.debug(
+                            f"BTN0 in DRAW: BLOCKED by frame guard (already toggled)"
+                        )
                         continue  # Skip this button, already toggled this frame
                     before = self.state_machine._draw_pen_down
                     _joy_log.debug(f"BTN0 in DRAW: pen_before={before}")
                     pen_down = self.state_machine.toggle_draw_pen()
                     after = self.state_machine._draw_pen_down
-                    _joy_log.debug(f"BTN0 in DRAW: pen_after={pen_down}, actual_state={after}")
+                    _joy_log.debug(
+                        f"BTN0 in DRAW: pen_after={pen_down}, actual_state={after}"
+                    )
                     # Verify the toggle actually happened
                     if before == after:
                         _joy_log.error(f"TOGGLE FAILED! before={before}, after={after}")
@@ -618,6 +679,7 @@ class Application:
                     self._show_message("")
             elif btn == 2:  # X button - cycle border styles
                 from zones import list_border_styles, get_border_style, set_border_style
+
                 styles = list_border_styles()
                 current = get_border_style()
                 try:
@@ -636,26 +698,26 @@ class Application:
 
         # Convert curses key codes to terminal sequences
         if key == curses.KEY_UP:
-            data = '\x1b[A'
+            data = "\x1b[A"
         elif key == curses.KEY_DOWN:
-            data = '\x1b[B'
+            data = "\x1b[B"
         elif key == curses.KEY_RIGHT:
-            data = '\x1b[C'
+            data = "\x1b[C"
         elif key == curses.KEY_LEFT:
-            data = '\x1b[D'
+            data = "\x1b[D"
         elif key == curses.KEY_BACKSPACE or key == 127:
-            data = '\x7f'
+            data = "\x7f"
         elif key == curses.KEY_DC:  # Delete
-            data = '\x1b[3~'
+            data = "\x1b[3~"
         elif key == curses.KEY_HOME:
-            data = '\x1b[H'
+            data = "\x1b[H"
         elif key == curses.KEY_END:
-            data = '\x1b[F'
+            data = "\x1b[F"
         elif key == 10 or key == 13:  # Enter
-            data = '\r'  # Use carriage return instead of newline for PTY
+            data = "\r"  # Use carriage return instead of newline for PTY
             self._show_message(f"DEBUG: Sending Enter (\\r) to PTY", frames=120)
         elif key == 9:  # Tab
-            data = '\t'
+            data = "\t"
         elif 1 <= key <= 26:  # Ctrl+A through Ctrl+Z
             data = chr(key)
         elif 32 <= key <= 126:  # Printable ASCII
@@ -691,8 +753,12 @@ class Application:
             return False
 
         # ONLY use special keys - no letters!
-        if key not in (curses.KEY_PPAGE, curses.KEY_NPAGE,
-                       curses.KEY_HOME, curses.KEY_END):
+        if key not in (
+            curses.KEY_PPAGE,
+            curses.KEY_NPAGE,
+            curses.KEY_HOME,
+            curses.KEY_END,
+        ):
             return False
 
         total_lines = len(zone._content_lines)
@@ -703,7 +769,9 @@ class Application:
         # PgUp: Scroll up half page (enters scroll mode)
         if key == curses.KEY_PPAGE:
             zone.config.pty_auto_scroll = False
-            zone.config.pty_scroll_offset = max(0, zone.config.pty_scroll_offset - half_page)
+            zone.config.pty_scroll_offset = max(
+                0, zone.config.pty_scroll_offset - half_page
+            )
             line = zone.config.pty_scroll_offset + 1
             self._show_message(f"PTY scroll: line {line}/{total_lines} | End:auto")
             return True
@@ -711,7 +779,9 @@ class Application:
         # PgDn: Scroll down half page
         elif key == curses.KEY_NPAGE:
             zone.config.pty_auto_scroll = False
-            zone.config.pty_scroll_offset = min(max_offset, zone.config.pty_scroll_offset + half_page)
+            zone.config.pty_scroll_offset = min(
+                max_offset, zone.config.pty_scroll_offset + half_page
+            )
             line = zone.config.pty_scroll_offset + 1
             self._show_message(f"PTY scroll: line {line}/{total_lines} | End:auto")
             return True
@@ -764,41 +834,47 @@ class Application:
         handled = True
 
         # Escape or q: unfocus
-        if key == 27 or key == ord('q'):
+        if key == 27 or key == ord("q"):
             self._focused_pager = None
             self._show_message("PAGER unfocused")
 
         # j or DOWN: scroll down one line
-        elif key == ord('j') or key == curses.KEY_DOWN:
+        elif key == ord("j") or key == curses.KEY_DOWN:
             if zone.config.scroll_offset < max_offset:
                 zone.config.scroll_offset += 1
 
         # k or UP: scroll up one line
-        elif key == ord('k') or key == curses.KEY_UP:
+        elif key == ord("k") or key == curses.KEY_UP:
             if zone.config.scroll_offset > 0:
                 zone.config.scroll_offset -= 1
 
         # d or PGDN: scroll down half page
-        elif key == ord('d') or key == curses.KEY_NPAGE:
-            zone.config.scroll_offset = min(max_offset, zone.config.scroll_offset + half_page)
+        elif key == ord("d") or key == curses.KEY_NPAGE:
+            zone.config.scroll_offset = min(
+                max_offset, zone.config.scroll_offset + half_page
+            )
 
         # u or PGUP: scroll up half page
-        elif key == ord('u') or key == curses.KEY_PPAGE:
+        elif key == ord("u") or key == curses.KEY_PPAGE:
             zone.config.scroll_offset = max(0, zone.config.scroll_offset - half_page)
 
         # g: go to top
-        elif key == ord('g'):
+        elif key == ord("g"):
             zone.config.scroll_offset = 0
 
         # G: go to bottom
-        elif key == ord('G'):
+        elif key == ord("G"):
             zone.config.scroll_offset = max_offset
 
         # n: next search match
-        elif key == ord('n'):
+        elif key == ord("n"):
             if zone.config.search_matches:
-                zone.config.search_index = (zone.config.search_index + 1) % len(zone.config.search_matches)
-                zone.config.scroll_offset = zone.config.search_matches[zone.config.search_index]
+                zone.config.search_index = (zone.config.search_index + 1) % len(
+                    zone.config.search_matches
+                )
+                zone.config.scroll_offset = zone.config.search_matches[
+                    zone.config.search_index
+                ]
                 self._show_message(
                     f"Match {zone.config.search_index + 1}/{len(zone.config.search_matches)}"
                 )
@@ -806,10 +882,14 @@ class Application:
                 self._show_message("No search - use :zone search NAME TERM")
 
         # N: previous search match
-        elif key == ord('N'):
+        elif key == ord("N"):
             if zone.config.search_matches:
-                zone.config.search_index = (zone.config.search_index - 1) % len(zone.config.search_matches)
-                zone.config.scroll_offset = zone.config.search_matches[zone.config.search_index]
+                zone.config.search_index = (zone.config.search_index - 1) % len(
+                    zone.config.search_matches
+                )
+                zone.config.scroll_offset = zone.config.search_matches[
+                    zone.config.search_index
+                ]
                 self._show_message(
                     f"Match {zone.config.search_index + 1}/{len(zone.config.search_matches)}"
                 )
@@ -817,7 +897,7 @@ class Application:
                 self._show_message("No search - use :zone search NAME TERM")
 
         # /: unfocus and go to command mode for search
-        elif key == ord('/'):
+        elif key == ord("/"):
             self._focused_pager = None
             # Pre-fill command with search command
             self.state_machine._enter_command_mode()
@@ -832,7 +912,7 @@ class Application:
     def _execute_external_command(self, command: str) -> ModeResult:
         """Execute a command string from external source."""
         # Strip leading : or / if present
-        if command.startswith(':') or command.startswith('/'):
+        if command.startswith(":") or command.startswith("/"):
             command = command[1:]
 
         # Parse command and args
@@ -866,33 +946,28 @@ class Application:
 
         # Map curses keys to actions
         key_map = {
-            ord('w'): Action.MOVE_UP,
-            ord('s'): Action.MOVE_DOWN,
-            ord('a'): Action.MOVE_LEFT,
-            ord('d'): Action.MOVE_RIGHT,
+            ord("w"): Action.MOVE_UP,
+            ord("s"): Action.MOVE_DOWN,
+            ord("a"): Action.MOVE_LEFT,
+            ord("d"): Action.MOVE_RIGHT,
             curses.KEY_UP: Action.MOVE_UP,
             curses.KEY_DOWN: Action.MOVE_DOWN,
             curses.KEY_LEFT: Action.MOVE_LEFT,
             curses.KEY_RIGHT: Action.MOVE_RIGHT,
-
-            ord('W'): Action.MOVE_UP_FAST,
-            ord('S'): Action.MOVE_DOWN_FAST,
-            ord('A'): Action.MOVE_LEFT_FAST,
-            ord('D'): Action.MOVE_RIGHT_FAST,
-
-            ord('i'): Action.ENTER_EDIT_MODE,
-            ord('p'): Action.TOGGLE_PAN_MODE,
-            ord(':'): Action.ENTER_COMMAND_MODE,
-            ord('/'): Action.ENTER_COMMAND_MODE,
+            ord("W"): Action.MOVE_UP_FAST,
+            ord("S"): Action.MOVE_DOWN_FAST,
+            ord("A"): Action.MOVE_LEFT_FAST,
+            ord("D"): Action.MOVE_RIGHT_FAST,
+            ord("i"): Action.ENTER_EDIT_MODE,
+            ord("p"): Action.TOGGLE_PAN_MODE,
+            ord(":"): Action.ENTER_COMMAND_MODE,
+            ord("/"): Action.ENTER_COMMAND_MODE,
             27: Action.EXIT_MODE,  # Escape
-
-            ord('g'): Action.TOGGLE_GRID_MAJOR,
-            ord('G'): Action.TOGGLE_GRID_MINOR,
-            ord('0'): Action.TOGGLE_GRID_ORIGIN,
-
-            ord('q'): Action.QUIT,
+            ord("g"): Action.TOGGLE_GRID_MAJOR,
+            ord("G"): Action.TOGGLE_GRID_MINOR,
+            ord("0"): Action.TOGGLE_GRID_ORIGIN,
+            ord("q"): Action.QUIT,
             curses.KEY_F1: Action.HELP,
-
             curses.KEY_BACKSPACE: Action.BACKSPACE,
             127: Action.BACKSPACE,  # Alt backspace
             curses.KEY_DC: Action.DELETE_CHAR,
@@ -909,7 +984,7 @@ class Application:
             return InputEvent(action=Action.NEW)
 
         # Special case: 'D' in NAV mode enters DRAW mode (not fast move)
-        if key == ord('D') and self.state_machine.mode == Mode.NAV:
+        if key == ord("D") and self.state_machine.mode == Mode.NAV:
             return InputEvent(action=Action.ENTER_DRAW_MODE)
 
         # Check mapped actions
@@ -918,10 +993,19 @@ class Application:
             # In edit/command mode, letter keys type instead of triggering actions
             if self.state_machine.mode in (Mode.EDIT, Mode.COMMAND):
                 # Allow arrow keys, function keys, and special keys
-                if key in (curses.KEY_UP, curses.KEY_DOWN,
-                          curses.KEY_LEFT, curses.KEY_RIGHT,
-                          curses.KEY_BACKSPACE, curses.KEY_DC,
-                          curses.KEY_F1, 27, 10, 13, 127):
+                if key in (
+                    curses.KEY_UP,
+                    curses.KEY_DOWN,
+                    curses.KEY_LEFT,
+                    curses.KEY_RIGHT,
+                    curses.KEY_BACKSPACE,
+                    curses.KEY_DC,
+                    curses.KEY_F1,
+                    27,
+                    10,
+                    13,
+                    127,
+                ):
                     return InputEvent(action=action)
                 # Letter/number keys should type as characters
                 if 32 <= key <= 126:
@@ -940,11 +1024,10 @@ class Application:
             return True
 
         self.renderer.render_message(
-            "Unsaved changes! Press 'q' again to quit, any other key to cancel.",
-            row=-1
+            "Unsaved changes! Press 'q' again to quit, any other key to cancel.", row=-1
         )
         key = self.renderer.get_input()
-        return key == ord('q')
+        return key == ord("q")
 
     def _handle_command(self, command: str) -> None:
         """Handle special commands from mode result."""
@@ -966,22 +1049,36 @@ class Application:
             parts = command.split()
             if len(parts) == 5:
                 x, y, w, h = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+                # Record undo state for all affected cells
+                self.undo_manager.begin_operation("Delete Region")
+                for cy in range(y, y + h):
+                    for cx in range(x, x + w):
+                        self.undo_manager.record_cell_before(self.canvas, cx, cy)
                 # Clear the rectangular region
                 for cy in range(y, y + h):
                     for cx in range(x, x + w):
                         self.canvas.clear(cx, cy)
+                for cy in range(y, y + h):
+                    for cx in range(x, x + w):
+                        self.undo_manager.record_cell_after(self.canvas, cx, cy)
+                self.undo_manager.end_operation()
                 self.project.mark_dirty()
                 self._show_message(f"Deleted {w}x{h} region")
+        elif command == "undo":
+            self._do_undo()
+        elif command == "redo":
+            self._do_redo()
 
     def _do_save(self) -> None:
         """Save the current project."""
         if self.project.filepath:
             try:
                 self.project.save(
-                    self.canvas, self.viewport,
+                    self.canvas,
+                    self.viewport,
                     grid_settings=self.renderer.grid,
                     bookmarks=self.state_machine.bookmarks,
-                    zones=self.zone_manager
+                    zones=self.zone_manager,
                 )
                 add_recent_project(self.project.filepath)
                 self._show_message(f"Saved: {self.project.filename}")
@@ -990,7 +1087,9 @@ class Application:
         else:
             # Don't use blocking prompt - especially problematic in server mode
             suggested = suggest_filename(self.canvas)
-            self._show_message(f"Use :w {suggested} or :w <filename> to save", frames=180)
+            self._show_message(
+                f"Use :w {suggested} or :w <filename> to save", frames=180
+            )
 
     def _do_save_as(self) -> None:
         """Save with a new filename."""
@@ -1000,17 +1099,18 @@ class Application:
         if not filename:
             filename = suggested
 
-        if not filename.endswith('.json'):
-            filename += '.json'
+        if not filename.endswith(".json"):
+            filename += ".json"
 
         try:
             filepath = Path(filename)
             self.project.save(
-                self.canvas, self.viewport,
+                self.canvas,
+                self.viewport,
                 grid_settings=self.renderer.grid,
                 bookmarks=self.state_machine.bookmarks,
                 zones=self.zone_manager,
-                filepath=filepath
+                filepath=filepath,
             )
             add_recent_project(filepath)
             self._show_message(f"Saved: {filepath.name}")
@@ -1028,9 +1128,9 @@ class Application:
         if self.project.dirty:
             self.renderer.render_message(
                 "Unsaved changes! Press 'y' to discard, any other key to cancel.",
-                row=-1
+                row=-1,
             )
-            if self.renderer.get_input() != ord('y'):
+            if self.renderer.get_input() != ord("y"):
                 return
 
         self.canvas.clear_all()
@@ -1040,7 +1140,26 @@ class Application:
         self.state_machine.bookmarks.clear()
         self.zone_manager.clear()
         self.project = Project()
+        self.undo_manager.clear()  # Clear undo history for new canvas
         self._show_message("New canvas created")
+
+    def _do_undo(self) -> None:
+        """Undo the last canvas operation."""
+        desc = self.undo_manager.undo(self.canvas)
+        if desc:
+            self._show_message(f"Undo: {desc}")
+            self.project.mark_dirty()
+        else:
+            self._show_message("Nothing to undo")
+
+    def _do_redo(self) -> None:
+        """Redo the last undone operation."""
+        desc = self.undo_manager.redo(self.canvas)
+        if desc:
+            self._show_message(f"Redo: {desc}")
+            self.project.mark_dirty()
+        else:
+            self._show_message("Nothing to redo")
 
     def _show_help(self) -> None:
         """Show help screen with multiple pages."""
@@ -1073,6 +1192,11 @@ class Application:
   BOOKMARKS:
     m + key       - Set mark (a-z, 0-9)    ' + key   - Jump to mark
     :marks        - List all marks         :delmark X - Delete mark X
+
+  UNDO/REDO:
+    u / Ctrl+Z    - Undo last operation    Ctrl+R    - Redo
+    :undo         - Undo via command       :redo     - Redo via command
+    :history      - Show operation history
 
   DRAWING:
     D / :draw     - Enter line draw mode   :border STYLE - Set line style
@@ -1158,7 +1282,7 @@ class Application:
 
         while True:
             self.stdscr.clear()
-            for i, line in enumerate(pages[current_page].strip().split('\n')):
+            for i, line in enumerate(pages[current_page].strip().split("\n")):
                 try:
                     self.stdscr.addstr(i, 0, line)
                 except curses.error:
@@ -1168,11 +1292,11 @@ class Application:
             key = self.renderer.get_input()
 
             # Navigation
-            if key in (ord('n'), ord(' '), curses.KEY_RIGHT, curses.KEY_DOWN):
+            if key in (ord("n"), ord(" "), curses.KEY_RIGHT, curses.KEY_DOWN):
                 current_page = (current_page + 1) % len(pages)
-            elif key in (ord('p'), curses.KEY_LEFT, curses.KEY_UP):
+            elif key in (ord("p"), curses.KEY_LEFT, curses.KEY_UP):
                 current_page = (current_page - 1) % len(pages)
-            elif key in (ord('q'), 27, ord('Q')):  # q, Esc, Q
+            elif key in (ord("q"), 27, ord("Q")):  # q, Esc, Q
                 break
 
         # Restore timeout if joystick/server is active
@@ -1197,22 +1321,22 @@ class Application:
             header = f" Zone Buffer: {zone_name} ({len(lines)} lines)"
             if search_term:
                 header += f" | Search: '{search_term}' ({len(search_matches)} matches)"
-            header = header[:width-1]
+            header = header[: width - 1]
             try:
                 self.stdscr.attron(curses.A_REVERSE)
-                self.stdscr.addstr(0, 0, header.ljust(width-1))
+                self.stdscr.addstr(0, 0, header.ljust(width - 1))
                 self.stdscr.attroff(curses.A_REVERSE)
             except curses.error:
                 pass
 
             # Content area (leave room for header and footer)
             content_height = height - 3
-            visible_lines = lines[scroll_offset:scroll_offset + content_height]
+            visible_lines = lines[scroll_offset : scroll_offset + content_height]
 
             for row, line in enumerate(visible_lines):
                 line_num = scroll_offset + row
                 # Truncate line to fit
-                display_line = line[:width-8] if len(line) > width-8 else line
+                display_line = line[: width - 8] if len(line) > width - 8 else line
                 prefix = f"{line_num+1:5} "
                 try:
                     # Highlight search matches
@@ -1226,12 +1350,14 @@ class Application:
                     pass
 
             # Footer with controls
-            footer = " [j/↓]Down [k/↑]Up [g]Top [G]End [/]Search [n]Next [N]Prev [q]Quit"
+            footer = (
+                " [j/↓]Down [k/↑]Up [g]Top [G]End [/]Search [n]Next [N]Prev [q]Quit"
+            )
             scroll_info = f" Line {scroll_offset+1}-{min(scroll_offset+content_height, len(lines))}/{len(lines)}"
-            footer_text = (footer + scroll_info)[:width-1]
+            footer_text = (footer + scroll_info)[: width - 1]
             try:
                 self.stdscr.attron(curses.A_REVERSE)
-                self.stdscr.addstr(height-1, 0, footer_text.ljust(width-1))
+                self.stdscr.addstr(height - 1, 0, footer_text.ljust(width - 1))
                 self.stdscr.attroff(curses.A_REVERSE)
             except curses.error:
                 pass
@@ -1241,28 +1367,30 @@ class Application:
             key = self.renderer.get_input()
 
             # Navigation
-            if key in (ord('j'), curses.KEY_DOWN):
+            if key in (ord("j"), curses.KEY_DOWN):
                 if scroll_offset < len(lines) - content_height:
                     scroll_offset += 1
-            elif key in (ord('k'), curses.KEY_UP):
+            elif key in (ord("k"), curses.KEY_UP):
                 if scroll_offset > 0:
                     scroll_offset -= 1
-            elif key in (ord('d'), curses.KEY_NPAGE):  # Page down
-                scroll_offset = min(scroll_offset + content_height, max(0, len(lines) - content_height))
-            elif key in (ord('u'), curses.KEY_PPAGE):  # Page up
+            elif key in (ord("d"), curses.KEY_NPAGE):  # Page down
+                scroll_offset = min(
+                    scroll_offset + content_height, max(0, len(lines) - content_height)
+                )
+            elif key in (ord("u"), curses.KEY_PPAGE):  # Page up
                 scroll_offset = max(0, scroll_offset - content_height)
-            elif key == ord('g'):  # Top
+            elif key == ord("g"):  # Top
                 scroll_offset = 0
-            elif key == ord('G'):  # Bottom
+            elif key == ord("G"):  # Bottom
                 scroll_offset = max(0, len(lines) - content_height)
-            elif key == ord('/'):  # Search
+            elif key == ord("/"):  # Search
                 # Simple search input
                 curses.echo()
-                self.stdscr.addstr(height-1, 0, "/".ljust(width-1))
-                self.stdscr.move(height-1, 1)
+                self.stdscr.addstr(height - 1, 0, "/".ljust(width - 1))
+                self.stdscr.move(height - 1, 1)
                 try:
-                    search_bytes = self.stdscr.getstr(height-1, 1, 40)
-                    search_term = search_bytes.decode('utf-8', errors='replace')
+                    search_bytes = self.stdscr.getstr(height - 1, 1, 40)
+                    search_term = search_bytes.decode("utf-8", errors="replace")
                 except:
                     search_term = ""
                 curses.noecho()
@@ -1276,13 +1404,17 @@ class Application:
                     # Jump to first match
                     if search_matches:
                         scroll_offset = max(0, search_matches[0] - content_height // 2)
-            elif key == ord('n') and search_matches:  # Next match
+            elif key == ord("n") and search_matches:  # Next match
                 current_match = (current_match + 1) % len(search_matches)
-                scroll_offset = max(0, search_matches[current_match] - content_height // 2)
-            elif key == ord('N') and search_matches:  # Prev match
+                scroll_offset = max(
+                    0, search_matches[current_match] - content_height // 2
+                )
+            elif key == ord("N") and search_matches:  # Prev match
                 current_match = (current_match - 1) % len(search_matches)
-                scroll_offset = max(0, search_matches[current_match] - content_height // 2)
-            elif key in (ord('q'), 27):  # q or Esc
+                scroll_offset = max(
+                    0, search_matches[current_match] - content_height // 2
+                )
+            elif key in (ord("q"), 27):  # q or Esc
                 break
 
         # Restore timeout if joystick/server is active
@@ -1299,15 +1431,16 @@ class Application:
         if args:
             # :w filename - save to specified file
             filename = args[0]
-            if not filename.endswith('.json'):
-                filename += '.json'
+            if not filename.endswith(".json"):
+                filename += ".json"
             try:
                 self.project.save(
-                    self.canvas, self.viewport,
+                    self.canvas,
+                    self.viewport,
                     grid_settings=self.renderer.grid,
                     bookmarks=self.state_machine.bookmarks,
                     zones=self.zone_manager,
-                    filepath=Path(filename)
+                    filepath=Path(filename),
                 )
                 add_recent_project(Path(filename))
                 self._show_message(f"Saved: {filename}")
@@ -1321,15 +1454,16 @@ class Application:
     def _cmd_save_as(self, args: list[str]) -> ModeResult:
         if args:
             filename = args[0]
-            if not filename.endswith('.json'):
-                filename += '.json'
+            if not filename.endswith(".json"):
+                filename += ".json"
             try:
                 self.project.save(
-                    self.canvas, self.viewport,
+                    self.canvas,
+                    self.viewport,
                     grid_settings=self.renderer.grid,
                     bookmarks=self.state_machine.bookmarks,
                     zones=self.zone_manager,
-                    filepath=Path(filename)
+                    filepath=Path(filename),
                 )
                 self._show_message(f"Saved: {filename}")
             except Exception as e:
@@ -1386,9 +1520,35 @@ class Application:
             return ModeResult(message="Usage: line X2 Y2 [char]")
         try:
             x2, y2 = int(args[0]), int(args[1])
-            char = args[2] if len(args) > 2 else '*'
+            char = args[2] if len(args) > 2 else "*"
             cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+
+            # Compute line cells using Bresenham's algorithm for undo recording
+            line_cells = []
+            dx, dy = abs(x2 - cx), abs(y2 - cy)
+            sx, sy = (1 if cx < x2 else -1), (1 if cy < y2 else -1)
+            err, x, y = dx - dy, cx, cy
+            while True:
+                line_cells.append((x, y))
+                if x == x2 and y == y2:
+                    break
+                e2 = 2 * err
+                if e2 > -dy:
+                    err -= dy
+                    x += sx
+                if e2 < dx:
+                    err += dx
+                    y += sy
+
+            # Record undo state
+            self.undo_manager.begin_operation("Line")
+            for lx, ly in line_cells:
+                self.undo_manager.record_cell_before(self.canvas, lx, ly)
             self.canvas.draw_line(cx, cy, x2, y2, char)
+            for lx, ly in line_cells:
+                self.undo_manager.record_cell_after(self.canvas, lx, ly)
+            self.undo_manager.end_operation()
+
             self.project.mark_dirty()
             return ModeResult(message=f"Drew line to ({x2}, {y2})")
         except ValueError:
@@ -1398,9 +1558,18 @@ class Application:
         """Write text: text MESSAGE"""
         if not args:
             return ModeResult(message="Usage: text MESSAGE")
-        text = ' '.join(args)
+        text = " ".join(args)
         cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+
+        # Record undo state for each character position
+        self.undo_manager.begin_operation("Text")
+        for i in range(len(text)):
+            self.undo_manager.record_cell_before(self.canvas, cx + i, cy)
         self.canvas.write_text(cx, cy, text)
+        for i in range(len(text)):
+            self.undo_manager.record_cell_after(self.canvas, cx + i, cy)
+        self.undo_manager.end_operation()
+
         self.project.mark_dirty()
         return ModeResult(message=f"Wrote {len(text)} characters")
 
@@ -1420,22 +1589,33 @@ class Application:
                 # fill X Y W H CHAR
                 x, y = int(args[0]), int(args[1])
                 w, h = int(args[2]), int(args[3])
-                char = args[4] if len(args) > 4 else ' '
+                char = args[4] if len(args) > 4 else " "
             else:
                 # fill W H CHAR (use cursor position)
                 x, y = self.viewport.cursor.x, self.viewport.cursor.y
                 w, h = int(args[0]), int(args[1])
-                char = args[2] if len(args) > 2 else ' '
+                char = args[2] if len(args) > 2 else " "
 
             # Use only the first character
-            char = char[0] if char else ' '
+            char = char[0] if char else " "
+
+            # Record undo state for all affected cells
+            self.undo_manager.begin_operation("Fill")
+            for fy in range(y, y + h):
+                for fx in range(x, x + w):
+                    self.undo_manager.record_cell_before(self.canvas, fx, fy)
 
             # Fill the region with current drawing colors
             fg = self.state_machine.draw_fg
             bg = self.state_machine.draw_bg
-            for cy in range(y, y + h):
-                for cx in range(x, x + w):
-                    self.canvas.set(cx, cy, char, fg=fg, bg=bg)
+            for fy in range(y, y + h):
+                for fx in range(x, x + w):
+                    self.canvas.set(fx, fy, char, fg=fg, bg=bg)
+
+            for fy in range(y, y + h):
+                for fx in range(x, x + w):
+                    self.undo_manager.record_cell_after(self.canvas, fx, fy)
+            self.undo_manager.end_operation()
 
             self.project.mark_dirty()
             return ModeResult(message=f"Filled {w}x{h} region with '{char}'")
@@ -1493,7 +1673,9 @@ class Application:
         # Set foreground (and optionally background)
         fg = parse_color(args[0])
         if fg == -1 and args[0].lower() not in ("default", "-1"):
-            return ModeResult(message=f"Unknown color: {args[0]}. Use: black,red,green,yellow,blue,magenta,cyan,white")
+            return ModeResult(
+                message=f"Unknown color: {args[0]}. Use: black,red,green,yellow,blue,magenta,cyan,white"
+            )
 
         bg = -1
         if len(args) > 1:
@@ -1510,19 +1692,22 @@ class Application:
 
     def _cmd_palette(self, args: list[str]) -> ModeResult:
         """Show available colors."""
-        colors = "black(0) red(1) green(2) yellow(3) blue(4) magenta(5) cyan(6) white(7)"
+        colors = (
+            "black(0) red(1) green(2) yellow(3) blue(4) magenta(5) cyan(6) white(7)"
+        )
         return ModeResult(message=f"Colors: {colors}", message_frames=60)
 
     def _cmd_draw(self, args: list[str]) -> ModeResult:
         """Enter draw mode for line drawing."""
         from modes import Mode
+
         self.state_machine._draw_last_dir = None
         self.state_machine._draw_pen_down = True  # Start with pen down
         self.state_machine.set_mode(Mode.DRAW)
         return ModeResult(
             mode_changed=True,
             new_mode=Mode.DRAW,
-            message="-- DRAW -- pen DOWN (wasd to draw, space to lift)"
+            message="-- DRAW -- pen DOWN (wasd to draw, space to lift)",
         )
 
     def _cmd_grid(self, args: list[str]) -> ModeResult:
@@ -1531,19 +1716,27 @@ class Application:
             mode_name = self.renderer.grid.line_mode.name.lower()
             return ModeResult(
                 message=f"Grid: mode={mode_name} major={self.renderer.grid.major_interval} "
-                       f"minor={self.renderer.grid.minor_interval} "
-                       f"rulers={'ON' if self.renderer.grid.show_rulers else 'OFF'}"
+                f"minor={self.renderer.grid.minor_interval} "
+                f"rulers={'ON' if self.renderer.grid.show_rulers else 'OFF'}"
             )
 
         arg = args[0].lower()
 
         # Toggle major/minor grid visibility
         if arg == "major":
-            self.renderer.grid.show_major_lines = not self.renderer.grid.show_major_lines
-            return ModeResult(message=f"Major grid: {'ON' if self.renderer.grid.show_major_lines else 'OFF'}")
+            self.renderer.grid.show_major_lines = (
+                not self.renderer.grid.show_major_lines
+            )
+            return ModeResult(
+                message=f"Major grid: {'ON' if self.renderer.grid.show_major_lines else 'OFF'}"
+            )
         elif arg == "minor":
-            self.renderer.grid.show_minor_lines = not self.renderer.grid.show_minor_lines
-            return ModeResult(message=f"Minor grid: {'ON' if self.renderer.grid.show_minor_lines else 'OFF'}")
+            self.renderer.grid.show_minor_lines = (
+                not self.renderer.grid.show_minor_lines
+            )
+            return ModeResult(
+                message=f"Minor grid: {'ON' if self.renderer.grid.show_minor_lines else 'OFF'}"
+            )
 
         # Grid line modes
         elif arg == "lines":
@@ -1562,15 +1755,21 @@ class Application:
         # Ruler and label toggles
         elif arg == "rulers":
             self.renderer.grid.show_rulers = not self.renderer.grid.show_rulers
-            return ModeResult(message=f"Rulers: {'ON' if self.renderer.grid.show_rulers else 'OFF'}")
+            return ModeResult(
+                message=f"Rulers: {'ON' if self.renderer.grid.show_rulers else 'OFF'}"
+            )
         elif arg == "labels":
             self.renderer.grid.show_labels = not self.renderer.grid.show_labels
-            return ModeResult(message=f"Coordinate labels: {'ON' if self.renderer.grid.show_labels else 'OFF'}")
+            return ModeResult(
+                message=f"Coordinate labels: {'ON' if self.renderer.grid.show_labels else 'OFF'}"
+            )
 
         # Interval configuration
         elif arg == "interval":
             if len(args) < 2:
-                return ModeResult(message=f"Interval: major={self.renderer.grid.major_interval} minor={self.renderer.grid.minor_interval}")
+                return ModeResult(
+                    message=f"Interval: major={self.renderer.grid.major_interval} minor={self.renderer.grid.minor_interval}"
+                )
             try:
                 major = int(args[1])
                 minor = int(args[2]) if len(args) > 2 else major // 2
@@ -1594,6 +1793,7 @@ class Application:
     def _cmd_ydir(self, args: list[str]) -> ModeResult:
         """Set Y direction: ydir up|down"""
         from viewport import YAxisDirection
+
         if not args:
             current = self.viewport.y_direction.name
             return ModeResult(message=f"Y direction: {current}")
@@ -1615,13 +1815,13 @@ class Application:
                 "x": self.viewport.x,
                 "y": self.viewport.y,
                 "width": self.viewport.width,
-                "height": self.viewport.height
+                "height": self.viewport.height,
             },
             "mode": self.state_machine.mode_name,
             "cells": self.canvas.cell_count,
             "dirty": self.project.dirty,
             "file": self.project.filename,
-            "server": self.api_server.status.tcp_port if self.api_server else None
+            "server": self.api_server.status.tcp_port if self.api_server else None,
         }
         return ModeResult(message=json.dumps(state))
 
@@ -1762,7 +1962,9 @@ class Application:
             if self.zone_manager.rename(args[1], args[2]):
                 self.project.mark_dirty()
                 return ModeResult(message=f"Renamed '{args[1]}' to '{args[2]}'")
-            return ModeResult(message=f"Failed to rename (zone not found or name conflict)")
+            return ModeResult(
+                message=f"Failed to rename (zone not found or name conflict)"
+            )
 
         # :zone resize NAME W H
         elif subcmd == "resize":
@@ -1798,7 +2000,9 @@ class Application:
             if self.zone_manager.set_bookmark(args[1], bookmark):
                 self.project.mark_dirty()
                 if bookmark:
-                    return ModeResult(message=f"Linked '{args[1]}' to bookmark '{bookmark}'")
+                    return ModeResult(
+                        message=f"Linked '{args[1]}' to bookmark '{bookmark}'"
+                    )
                 return ModeResult(message=f"Unlinked bookmark from '{args[1]}'")
             return ModeResult(message=f"Zone '{args[1]}' not found")
 
@@ -1838,7 +2042,9 @@ class Application:
                 # Execute immediately
                 self.zone_executor.execute_pipe(zone)
                 self.project.mark_dirty()
-                return ModeResult(message=f"Created pipe zone '{name}' - {len(zone.content_lines)} lines")
+                return ModeResult(
+                    message=f"Created pipe zone '{name}' - {len(zone.content_lines)} lines"
+                )
             except ValueError as e:
                 return ModeResult(message=str(e))
 
@@ -1869,7 +2075,9 @@ class Application:
                 # Start background refresh
                 self.zone_executor.start_watch(zone)
                 self.project.mark_dirty()
-                return ModeResult(message=f"Created watch zone '{name}' (refresh: {interval}s)")
+                return ModeResult(
+                    message=f"Created watch zone '{name}' (refresh: {interval}s)"
+                )
             except ValueError as e:
                 return ModeResult(message=str(e))
 
@@ -1879,7 +2087,9 @@ class Application:
                 return ModeResult(message="Usage: zone refresh NAME")
             if self.zone_executor.refresh_zone(args[1]):
                 zone = self.zone_manager.get(args[1])
-                return ModeResult(message=f"Refreshed '{args[1]}' - {len(zone.content_lines)} lines")
+                return ModeResult(
+                    message=f"Refreshed '{args[1]}' - {len(zone.content_lines)} lines"
+                )
             return ModeResult(message=f"Zone '{args[1]}' not found or not refreshable")
 
         # :zone pause NAME
@@ -1927,13 +2137,14 @@ class Application:
                 filename = args[2]
             else:
                 from datetime import datetime
+
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"{zone.name.lower()}_{timestamp}.txt"
 
             try:
-                with open(filename, 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(lines))
-                    f.write('\n')  # Trailing newline
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write("\n".join(lines))
+                    f.write("\n")  # Trailing newline
                 return ModeResult(message=f"Exported {len(lines)} lines to {filename}")
             except Exception as e:
                 return ModeResult(message=f"Export error: {e}")
@@ -1941,7 +2152,9 @@ class Application:
         # :zone pty NAME W H [SHELL]
         elif subcmd == "pty":
             if not PTY_AVAILABLE:
-                return ModeResult(message="PTY not available on this platform (requires Unix)")
+                return ModeResult(
+                    message="PTY not available on this platform (requires Unix)"
+                )
 
             if len(args) < 4:
                 return ModeResult(message="Usage: zone pty NAME W H [SHELL]")
@@ -1960,7 +2173,9 @@ class Application:
                 # Start PTY session
                 if self.pty_handler.create_pty(zone):
                     self.project.mark_dirty()
-                    return ModeResult(message=f"Created PTY zone '{name}' - press Enter to focus")
+                    return ModeResult(
+                        message=f"Created PTY zone '{name}' - press Enter to focus"
+                    )
                 else:
                     self.zone_manager.delete(name)
                     return ModeResult(message=f"Failed to create PTY for zone '{name}'")
@@ -1997,15 +2212,20 @@ class Application:
                 self._focused_pager = name
                 line = zone.config.scroll_offset + 1
                 total = zone.pager_line_count
-                return ModeResult(message=f"PAGER focused: {name} - Line {line}/{total}")
+                return ModeResult(
+                    message=f"PAGER focused: {name} - Line {line}/{total}"
+                )
             else:
                 return ModeResult(message=f"Zone '{name}' is not a PTY or PAGER zone")
 
         # :zone fifo NAME W H PATH
         elif subcmd == "fifo":
             import os as os_check
-            if os_check.name == 'nt':
-                return ModeResult(message="FIFO not available on Windows (requires Unix)")
+
+            if os_check.name == "nt":
+                return ModeResult(
+                    message="FIFO not available on Windows (requires Unix)"
+                )
 
             if len(args) < 5:
                 return ModeResult(message="Usage: zone fifo NAME W H PATH")
@@ -2023,16 +2243,19 @@ class Application:
                 # Create zone with FIFO config
                 config = ZoneConfig(zone_type=ZoneType.FIFO, path=path)
                 zone = self.zone_manager.create(
-                    name, x, y, w, h, config=config,
-                    description=f"FIFO: {path}"
+                    name, x, y, w, h, config=config, description=f"FIFO: {path}"
                 )
                 # Start FIFO listener
                 if self.fifo_handler.create_fifo(zone):
                     self.project.mark_dirty()
-                    return ModeResult(message=f"Created FIFO zone '{name}' listening on {path}")
+                    return ModeResult(
+                        message=f"Created FIFO zone '{name}' listening on {path}"
+                    )
                 else:
                     self.zone_manager.delete(name)
-                    return ModeResult(message=f"Failed to create FIFO for zone '{name}'")
+                    return ModeResult(
+                        message=f"Failed to create FIFO for zone '{name}'"
+                    )
             except ValueError as e:
                 return ModeResult(message=str(e))
 
@@ -2054,23 +2277,28 @@ class Application:
                 # Create zone with socket config
                 config = ZoneConfig(zone_type=ZoneType.SOCKET, port=port)
                 zone = self.zone_manager.create(
-                    name, x, y, w, h, config=config,
-                    description=f"Socket: port {port}"
+                    name, x, y, w, h, config=config, description=f"Socket: port {port}"
                 )
                 # Start socket listener
                 if self.socket_handler.create_socket(zone):
                     self.project.mark_dirty()
-                    return ModeResult(message=f"Created socket zone '{name}' listening on port {port}")
+                    return ModeResult(
+                        message=f"Created socket zone '{name}' listening on port {port}"
+                    )
                 else:
                     self.zone_manager.delete(name)
-                    return ModeResult(message=f"Failed to create socket for zone '{name}'")
+                    return ModeResult(
+                        message=f"Failed to create socket for zone '{name}'"
+                    )
             except ValueError as e:
                 return ModeResult(message=str(e))
 
         # :zone pager NAME W H FILE [--renderer RENDERER] [--wsl]
         elif subcmd == "pager":
             if len(args) < 5:
-                return ModeResult(message="Usage: zone pager NAME W H FILE [--renderer glow|bat|plain] [--wsl]")
+                return ModeResult(
+                    message="Usage: zone pager NAME W H FILE [--renderer glow|bat|plain] [--wsl]"
+                )
             name = args[1]
             try:
                 w, h = int(args[2]), int(args[3])
@@ -2097,6 +2325,7 @@ class Application:
 
             # Resolve relative paths
             import os
+
             if not os.path.isabs(file_path):
                 file_path = os.path.abspath(file_path)
 
@@ -2108,18 +2337,27 @@ class Application:
                     renderer=renderer,
                 )
                 zone = self.zone_manager.create(
-                    name, x, y, w, h, config=config,
-                    description=f"Pager: {os.path.basename(file_path)}"
+                    name,
+                    x,
+                    y,
+                    w,
+                    h,
+                    config=config,
+                    description=f"Pager: {os.path.basename(file_path)}",
                 )
 
                 # Load and render content
                 if load_pager_content(zone, use_wsl):
                     self.project.mark_dirty()
                     line_count = zone.pager_line_count
-                    return ModeResult(message=f"Created pager zone '{name}' - {line_count} lines - press Enter to focus")
+                    return ModeResult(
+                        message=f"Created pager zone '{name}' - {line_count} lines - press Enter to focus"
+                    )
                 else:
                     self.zone_manager.delete(name)
-                    return ModeResult(message=f"Failed to load content for pager zone '{name}'")
+                    return ModeResult(
+                        message=f"Failed to load content for pager zone '{name}'"
+                    )
             except ValueError as e:
                 return ModeResult(message=str(e))
 
@@ -2143,15 +2381,21 @@ class Application:
                 zone.config.scroll_offset = max_offset
             else:
                 try:
-                    if scroll_arg.startswith('+'):
+                    if scroll_arg.startswith("+"):
                         delta = int(scroll_arg[1:])
-                        zone.config.scroll_offset = min(max_offset, zone.config.scroll_offset + delta)
-                    elif scroll_arg.startswith('-'):
+                        zone.config.scroll_offset = min(
+                            max_offset, zone.config.scroll_offset + delta
+                        )
+                    elif scroll_arg.startswith("-"):
                         delta = int(scroll_arg[1:])
-                        zone.config.scroll_offset = max(0, zone.config.scroll_offset - delta)
+                        zone.config.scroll_offset = max(
+                            0, zone.config.scroll_offset - delta
+                        )
                     else:
                         # Absolute position
-                        zone.config.scroll_offset = max(0, min(max_offset, int(scroll_arg)))
+                        zone.config.scroll_offset = max(
+                            0, min(max_offset, int(scroll_arg))
+                        )
                 except ValueError:
                     return ModeResult(message=f"Invalid scroll value: {scroll_arg}")
 
@@ -2202,7 +2446,9 @@ class Application:
                 return ModeResult(message=f"Zone '{name}' is not a pager zone")
 
             if load_pager_content(zone, use_wsl=False):
-                return ModeResult(message=f"Reloaded pager zone '{name}' - {zone.pager_line_count} lines")
+                return ModeResult(
+                    message=f"Reloaded pager zone '{name}' - {zone.pager_line_count} lines"
+                )
             else:
                 return ModeResult(message=f"Failed to reload content for '{name}'")
 
@@ -2250,13 +2496,13 @@ class Application:
         subcmd = args[1].lower()
 
         # Port assignment for shader zones (stored in zone metadata)
-        if not hasattr(zone, '_control_port'):
+        if not hasattr(zone, "_control_port"):
             # Default ports for known shaders
             default_ports = {
-                'LISSAJOUS': 9998,
-                'PLASMA': 9997,
-                'SPIRAL': 9996,
-                'WAVES': 9995,
+                "LISSAJOUS": 9998,
+                "PLASMA": 9997,
+                "SPIRAL": 9996,
+                "WAVES": 9995,
             }
             zone._control_port = default_ports.get(zone_name.upper())
 
@@ -2265,7 +2511,9 @@ class Application:
                 return ModeResult(message="Usage: shader ZONE port PORT")
             try:
                 zone._control_port = int(args[2])
-                return ModeResult(message=f"Set control port {zone._control_port} for {zone_name}")
+                return ModeResult(
+                    message=f"Set control port {zone._control_port} for {zone_name}"
+                )
             except ValueError:
                 return ModeResult(message=f"Invalid port: {args[2]}")
 
@@ -2274,7 +2522,9 @@ class Application:
                 return ModeResult(message="Usage: shader ZONE param PARAM VALUE")
 
             if not zone._control_port:
-                return ModeResult(message=f"No control port set for {zone_name}. Use :shader {zone_name} port PORT")
+                return ModeResult(
+                    message=f"No control port set for {zone_name}. Use :shader {zone_name} port PORT"
+                )
 
             param_name = args[2]
             try:
@@ -2285,32 +2535,88 @@ class Application:
             # Send JSON command to control socket
             import json
             import socket
-            cmd = json.dumps({
-                "command": "set_param",
-                "param": param_name,
-                "value": param_value
-            })
+
+            cmd = json.dumps(
+                {"command": "set_param", "param": param_name, "value": param_value}
+            )
 
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(1.0)
-                s.connect(('localhost', zone._control_port))
-                s.sendall(cmd.encode('utf-8') + b'\n')
-                # Read response
-                response = s.recv(1024).decode('utf-8').strip()
+                s.connect(("localhost", zone._control_port))
+                s.sendall(cmd.encode("utf-8") + b"\n")
+                # Read response (discard - just need to wait for acknowledgment)
+                s.recv(1024)
                 s.close()
                 return ModeResult(message=f"✓ {param_name}={param_value}")
             except ConnectionRefusedError:
-                return ModeResult(message=f"Control port {zone._control_port} not listening. Shader running with --control-port?")
+                return ModeResult(
+                    message=f"Control port {zone._control_port} not listening. Shader running with --control-port?"
+                )
             except Exception as e:
                 return ModeResult(message=f"Error: {e}")
 
         elif subcmd == "info":
-            port_info = f" (port {zone._control_port})" if zone._control_port else " (no control port)"
+            port_info = (
+                f" (port {zone._control_port})"
+                if zone._control_port
+                else " (no control port)"
+            )
             return ModeResult(message=f"Zone: {zone_name}{port_info}")
 
         else:
             return ModeResult(message="Usage: shader ZONE param PARAM VALUE")
+
+    def _cmd_undo(self, args: list[str]) -> ModeResult:
+        """Undo the last canvas operation.
+
+        Usage:
+            :undo           - Undo last operation
+        """
+        desc = self.undo_manager.undo(self.canvas)
+        if desc:
+            self.project.mark_dirty()
+            return ModeResult(message=f"Undo: {desc}")
+        return ModeResult(message="Nothing to undo")
+
+    def _cmd_redo(self, args: list[str]) -> ModeResult:
+        """Redo the last undone operation.
+
+        Usage:
+            :redo           - Redo last undone operation
+        """
+        desc = self.undo_manager.redo(self.canvas)
+        if desc:
+            self.project.mark_dirty()
+            return ModeResult(message=f"Redo: {desc}")
+        return ModeResult(message="Nothing to redo")
+
+    def _cmd_history(self, args: list[str]) -> ModeResult:
+        """Show undo/redo history.
+
+        Usage:
+            :history        - Show recent operation history
+            :history N      - Show N most recent operations
+        """
+        limit = 10
+        if args:
+            try:
+                limit = int(args[0])
+            except ValueError:
+                return ModeResult(message=f"Invalid limit: {args[0]} (expected number)")
+
+        history = self.undo_manager.get_history(limit)
+        if not history:
+            return ModeResult(message="No history")
+
+        undo_count = self.undo_manager.undo_count
+        redo_count = self.undo_manager.redo_count
+        lines = [f"History ({undo_count} undo, {redo_count} redo):"]
+        for idx, desc in history:
+            marker = ">" if idx == 0 else " "
+            lines.append(f"  {marker} {idx}: {desc}")
+
+        return ModeResult(message="\n".join(lines), message_frames=180)
 
     def _cmd_zones(self, args: list[str]) -> ModeResult:
         """List all zones."""
@@ -2326,7 +2632,9 @@ class Application:
                 info += f" [{z.bookmark}]"
             lines.append(info)
 
-        return ModeResult(message=f"{len(zones)} zones: " + ", ".join(z.name for z in zones))
+        return ModeResult(
+            message=f"{len(zones)} zones: " + ", ".join(z.name for z in zones)
+        )
 
     def _cmd_box(self, args: list[str]) -> ModeResult:
         """
@@ -2455,8 +2763,10 @@ class Application:
     def _cmd_tools(self, args: list[str]) -> ModeResult:
         """Show status of external tools."""
         status = get_tool_status()
-        parts = [f"{name}: {'OK' if available else 'NOT FOUND'}"
-                 for name, available in status.items()]
+        parts = [
+            f"{name}: {'OK' if available else 'NOT FOUND'}"
+            for name, available in status.items()
+        ]
         return ModeResult(message="Tools: " + ", ".join(parts))
 
     def _cmd_border(self, args: list[str]) -> ModeResult:
@@ -2522,9 +2832,15 @@ class Application:
             # Show up to 10 sessions
             parts = []
             for i, sess in enumerate(sessions[:10]):
-                ts = sess["timestamp"][:16] if sess["timestamp"] != "Unknown" else "Unknown"
+                ts = (
+                    sess["timestamp"][:16]
+                    if sess["timestamp"] != "Unknown"
+                    else "Unknown"
+                )
                 parts.append(f"{i}: {ts}")
-            return ModeResult(message=f"Sessions: {', '.join(parts)}", message_frames=120)
+            return ModeResult(
+                message=f"Sessions: {', '.join(parts)}", message_frames=120
+            )
 
         # :session restore [N]
         elif subcmd == "restore":
@@ -2538,10 +2854,14 @@ class Application:
                 try:
                     index = int(args[1])
                 except ValueError:
-                    return ModeResult(message="Usage: session restore [N] (N = session index)")
+                    return ModeResult(
+                        message="Usage: session restore [N] (N = session index)"
+                    )
 
             if index < 0 or index >= len(sessions):
-                return ModeResult(message=f"Invalid session index. Range: 0-{len(sessions)-1}")
+                return ModeResult(
+                    message=f"Invalid session index. Range: 0-{len(sessions)-1}"
+                )
 
             session_path = sessions[index]["path"]
             success = self.session_manager.restore_session(
@@ -2550,24 +2870,28 @@ class Application:
                 self.viewport,
                 grid_settings=self.renderer.grid,
                 bookmarks=self.state_machine.bookmarks,
-                zones=self.zone_manager
+                zones=self.zone_manager,
             )
 
             if success:
                 self.project.mark_dirty()  # Mark as dirty since restored
-                return ModeResult(message=f"Restored session from {sessions[index]['timestamp'][:16]}")
+                return ModeResult(
+                    message=f"Restored session from {sessions[index]['timestamp'][:16]}"
+                )
             else:
                 return ModeResult(message="Failed to restore session")
 
         # :session save
         elif subcmd == "save":
             import time
+
             self.session_manager._last_save_time = 0  # Force save
             result = self.session_manager.auto_save(
-                self.canvas, self.viewport,
+                self.canvas,
+                self.viewport,
                 grid_settings=self.renderer.grid,
                 bookmarks=self.state_machine.bookmarks,
-                zones=self.zone_manager
+                zones=self.zone_manager,
             )
             if result:
                 return ModeResult(message=f"Session saved to {result.name}")
@@ -2597,7 +2921,7 @@ class Application:
         else:
             return ModeResult(
                 message="Usage: session list|restore|save|on|off|clear",
-                message_frames=60
+                message_frames=60,
             )
 
     def _cmd_layout(self, args: list[str]) -> ModeResult:
@@ -2622,7 +2946,9 @@ class Application:
         if subcmd == "list":
             layouts = self.layout_manager.list_layouts()
             if not layouts:
-                return ModeResult(message="No layouts found. Use ':layout save NAME' to create one.")
+                return ModeResult(
+                    message="No layouts found. Use ':layout save NAME' to create one."
+                )
             # Show names with descriptions
             parts = []
             for name, desc in layouts:
@@ -2699,10 +3025,11 @@ class Application:
             viewport = (self.viewport.x, self.viewport.y)
 
             path = self.layout_manager.save_from_zones(
-                name, description, self.zone_manager,
-                cursor=cursor, viewport=viewport
+                name, description, self.zone_manager, cursor=cursor, viewport=viewport
             )
-            return ModeResult(message=f"Saved layout '{name}' ({len(self.zone_manager)} zones)")
+            return ModeResult(
+                message=f"Saved layout '{name}' ({len(self.zone_manager)} zones)"
+            )
 
         # :layout delete NAME
         elif subcmd == "delete":
@@ -2776,13 +3103,13 @@ class Application:
                 w = int(args[0])
                 h = int(args[1]) if len(args) > 1 else 1
             except ValueError:
-                return ModeResult(message="Usage: yank W H | yank zone NAME | yank system")
+                return ModeResult(
+                    message="Usage: yank W H | yank zone NAME | yank system"
+                )
 
             cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
             lines = self.clipboard.yank_region(
-                self.canvas,
-                cx, cy,
-                cx + w - 1, cy + h - 1
+                self.canvas, cx, cy, cx + w - 1, cy + h - 1
             )
             return ModeResult(message=f"Yanked {w}x{h} region ({lines} lines)")
 
@@ -2808,10 +3135,26 @@ class Application:
         skip_spaces = args and args[0].lower() == "skip"
 
         cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+
+        # Calculate paste dimensions for undo recording
+        content = self.clipboard.content
+        paste_h = len(content)
+        paste_w = max((len(line) for line in content), default=0)
+
+        # Record undo state for affected region
+        self.undo_manager.begin_operation("Paste")
+        for py in range(paste_h):
+            for px in range(paste_w):
+                self.undo_manager.record_cell_before(self.canvas, cx + px, cy + py)
+
         w, h = self.clipboard.paste_to_canvas(
-            self.canvas, cx, cy,
-            skip_spaces=skip_spaces
+            self.canvas, cx, cy, skip_spaces=skip_spaces
         )
+
+        for py in range(paste_h):
+            for px in range(paste_w):
+                self.undo_manager.record_cell_after(self.canvas, cx + px, cy + py)
+        self.undo_manager.end_operation()
 
         if w > 0:
             self.project.mark_dirty()
@@ -2832,7 +3175,11 @@ class Application:
             if self.clipboard.is_empty:
                 return ModeResult(message="Clipboard is empty")
             lines = len(self.clipboard.content)
-            width = max(len(line) for line in self.clipboard.content) if self.clipboard.content else 0
+            width = (
+                max(len(line) for line in self.clipboard.content)
+                if self.clipboard.content
+                else 0
+            )
             return ModeResult(
                 message=f"Clipboard: {lines} lines, max width {width} (from: {self.clipboard.source})"
             )
@@ -2859,7 +3206,9 @@ class Application:
             except ValueError as e:
                 return ModeResult(message=str(e))
 
-        return ModeResult(message="Usage: clipboard | clipboard clear | clipboard zone [NAME W H]")
+        return ModeResult(
+            message="Usage: clipboard | clipboard clear | clipboard zone [NAME W H]"
+        )
 
 
 def main(stdscr: "curses.window", args: argparse.Namespace) -> None:
@@ -2871,7 +3220,7 @@ def main(stdscr: "curses.window", args: argparse.Namespace) -> None:
             tcp_enabled=not args.no_tcp,
             tcp_port=args.port,
             fifo_enabled=not args.no_fifo,
-            fifo_path=args.fifo or "/tmp/mygrid.fifo"
+            fifo_path=args.fifo or "/tmp/mygrid.fifo",
         )
 
     app = Application(stdscr, server_config=server_config)
@@ -2912,59 +3261,42 @@ API Server:
   When --server is enabled, external processes can send commands
   via TCP (default port 8765) or FIFO (/tmp/mygrid.fifo on Unix).
   Use mygrid-ctl to send commands from another terminal.
-"""
+""",
     )
     parser.add_argument(
-        'file',
-        nargs='?',
-        help='Project file (.json) or text file to open'
+        "file", nargs="?", help="Project file (.json) or text file to open"
     )
-    parser.add_argument(
-        '--version',
-        action='version',
-        version='%(prog)s 0.2.0'
-    )
+    parser.add_argument("--version", action="version", version="%(prog)s 0.2.0")
 
     # Server options
-    server_group = parser.add_argument_group('API Server')
+    server_group = parser.add_argument_group("API Server")
     server_group.add_argument(
-        '--server',
-        action='store_true',
-        help='Enable API server for external commands'
+        "--server", action="store_true", help="Enable API server for external commands"
     )
     server_group.add_argument(
-        '--port',
-        type=int,
-        default=8765,
-        help='TCP port for API server (default: 8765)'
+        "--port", type=int, default=8765, help="TCP port for API server (default: 8765)"
     )
     server_group.add_argument(
-        '--no-tcp',
-        action='store_true',
-        help='Disable TCP listener'
+        "--no-tcp", action="store_true", help="Disable TCP listener"
     )
     server_group.add_argument(
-        '--fifo',
-        metavar='PATH',
-        help='FIFO path for Unix (default: /tmp/mygrid.fifo)'
+        "--fifo", metavar="PATH", help="FIFO path for Unix (default: /tmp/mygrid.fifo)"
     )
     server_group.add_argument(
-        '--no-fifo',
-        action='store_true',
-        help='Disable FIFO listener'
+        "--no-fifo", action="store_true", help="Disable FIFO listener"
     )
     server_group.add_argument(
-        '--headless',
-        action='store_true',
-        help='Run API server without curses UI (for background/daemon use)'
+        "--headless",
+        action="store_true",
+        help="Run API server without curses UI (for background/daemon use)",
     )
 
     # Layout options
-    layout_group = parser.add_argument_group('Layout')
+    layout_group = parser.add_argument_group("Layout")
     layout_group.add_argument(
-        '--layout',
-        metavar='NAME',
-        help='Load a layout on startup (e.g., --layout live-dashboard)'
+        "--layout",
+        metavar="NAME",
+        help="Load a layout on startup (e.g., --layout live-dashboard)",
     )
 
     return parser.parse_args()
@@ -2980,7 +3312,7 @@ def main_headless(args: argparse.Namespace) -> None:
         tcp_enabled=not args.no_tcp,
         tcp_port=args.port,
         fifo_enabled=not args.no_fifo,
-        fifo_path=args.fifo or "/tmp/mygrid.fifo"
+        fifo_path=args.fifo or "/tmp/mygrid.fifo",
     )
 
     # Create minimal components for headless operation
@@ -2997,6 +3329,7 @@ def main_headless(args: argparse.Namespace) -> None:
 
     # Handle shutdown signals
     running = True
+
     def signal_handler(sig, frame):
         nonlocal running
         running = False
@@ -3022,8 +3355,12 @@ def main_headless(args: argparse.Namespace) -> None:
             # Send response if requested (must be CommandResponse object)
             if cmd.response_queue:
                 response = CommandResponse(
-                    status="ok" if not result.message or "error" not in result.message.lower() else "error",
-                    message=result.message or "OK"
+                    status=(
+                        "ok"
+                        if not result.message or "error" not in result.message.lower()
+                        else "error"
+                    ),
+                    message=result.message or "OK",
                 )
                 cmd.response_queue.put(response)
             cmd = command_queue.get_nowait()

@@ -16,23 +16,26 @@ if TYPE_CHECKING:
     from canvas import Canvas
     from viewport import Viewport
     from input import Action, InputEvent
+    from undo import UndoManager
 
 
 class Mode(Enum):
     """Editor modes."""
+
     NAV = auto()
     PAN = auto()
     EDIT = auto()
     COMMAND = auto()
-    MARK_SET = auto()      # Waiting for bookmark key (m + key)
-    MARK_JUMP = auto()     # Waiting for bookmark key (' + key)
-    VISUAL = auto()        # Visual selection mode
-    DRAW = auto()          # Line drawing mode
+    MARK_SET = auto()  # Waiting for bookmark key (m + key)
+    MARK_JUMP = auto()  # Waiting for bookmark key (' + key)
+    VISUAL = auto()  # Visual selection mode
+    DRAW = auto()  # Line drawing mode
 
 
 @dataclass
 class Bookmark:
     """A saved position on the canvas."""
+
     x: int
     y: int
     name: str = ""
@@ -87,10 +90,7 @@ class BookmarkManager:
         manager = cls()
         for key, bm_data in data.items():
             manager.set(
-                key,
-                bm_data.get("x", 0),
-                bm_data.get("y", 0),
-                bm_data.get("name", "")
+                key, bm_data.get("x", 0), bm_data.get("y", 0), bm_data.get("name", "")
             )
         return manager
 
@@ -103,6 +103,7 @@ class Selection:
     The selection is defined by an anchor point and the current cursor position.
     The actual rectangle spans from min(anchor, cursor) to max(anchor, cursor).
     """
+
     anchor_x: int = 0
     anchor_y: int = 0
     cursor_x: int = 0
@@ -151,13 +152,14 @@ class Selection:
 @dataclass
 class ModeConfig:
     """Configuration for mode behaviors."""
+
     # Movement distances
     move_step: int = 1
     move_fast_step: int = 10
     pan_step: int = 5
 
     # Edit mode settings
-    auto_advance: bool = True       # Move cursor after typing
+    auto_advance: bool = True  # Move cursor after typing
     advance_direction: tuple[int, int] = (1, 0)  # (dx, dy) after typing
 
     # Scroll margin for cursor visibility
@@ -167,6 +169,7 @@ class ModeConfig:
 @dataclass
 class CommandBuffer:
     """Buffer for command mode input."""
+
     text: str = ""
     cursor_pos: int = 0
     history: list[str] = field(default_factory=list)
@@ -174,19 +177,19 @@ class CommandBuffer:
 
     def insert(self, char: str) -> None:
         """Insert character at cursor."""
-        self.text = self.text[:self.cursor_pos] + char + self.text[self.cursor_pos:]
+        self.text = self.text[: self.cursor_pos] + char + self.text[self.cursor_pos :]
         self.cursor_pos += 1
 
     def backspace(self) -> None:
         """Delete character before cursor."""
         if self.cursor_pos > 0:
-            self.text = self.text[:self.cursor_pos - 1] + self.text[self.cursor_pos:]
+            self.text = self.text[: self.cursor_pos - 1] + self.text[self.cursor_pos :]
             self.cursor_pos -= 1
 
     def delete(self) -> None:
         """Delete character at cursor."""
         if self.cursor_pos < len(self.text):
-            self.text = self.text[:self.cursor_pos] + self.text[self.cursor_pos + 1:]
+            self.text = self.text[: self.cursor_pos] + self.text[self.cursor_pos + 1 :]
 
     def move_left(self) -> None:
         """Move cursor left."""
@@ -242,12 +245,13 @@ class CommandBuffer:
 @dataclass
 class ModeResult:
     """Result of processing input in a mode."""
+
     handled: bool = True
     mode_changed: bool = False
     new_mode: Mode | None = None
-    command: str | None = None      # For command mode submission
-    message: str | None = None      # Status message to display
-    message_frames: int = 2         # How long to show message (default 2 frames)
+    command: str | None = None  # For command mode submission
+    message: str | None = None  # Status message to display
+    message_frames: int = 2  # How long to show message (default 2 frames)
     quit: bool = False
 
 
@@ -262,11 +266,13 @@ class ModeStateMachine:
         self,
         canvas: "Canvas",
         viewport: "Viewport",
-        config: ModeConfig | None = None
+        config: ModeConfig | None = None,
+        undo_manager: "UndoManager | None" = None,
     ):
         self.canvas = canvas
         self.viewport = viewport
         self.config = config or ModeConfig()
+        self.undo_manager = undo_manager
 
         self._mode = Mode.NAV
         self._previous_mode = Mode.NAV
@@ -375,7 +381,9 @@ class ModeStateMachine:
         elif self._mode == Mode.VISUAL:
             self.selection = None
             self.set_mode(Mode.NAV)
-            return ModeResult(mode_changed=True, new_mode=Mode.NAV, message="Selection cancelled")
+            return ModeResult(
+                mode_changed=True, new_mode=Mode.NAV, message="Selection cancelled"
+            )
         elif self._mode == Mode.DRAW:
             self._draw_last_dir = None
             self.set_mode(Mode.NAV)
@@ -406,8 +414,11 @@ class ModeStateMachine:
             self._draw_last_dir = None
             self._draw_pen_down = True  # Start with pen down
             self.set_mode(Mode.DRAW)
-            return ModeResult(mode_changed=True, new_mode=Mode.DRAW,
-                            message="-- DRAW -- pen DOWN (wasd to draw, space to lift)")
+            return ModeResult(
+                mode_changed=True,
+                new_mode=Mode.DRAW,
+                message="-- DRAW -- pen DOWN (wasd to draw, space to lift)",
+            )
 
         # Cursor movement
         moved = self._handle_movement(action, cfg.move_step, cfg.move_fast_step)
@@ -439,30 +450,46 @@ class ModeStateMachine:
             return ModeResult()
 
         # Bookmark triggers (handled by char, not action)
-        if event.char == 'm':
+        if event.char == "m":
             self.set_mode(Mode.MARK_SET)
-            return ModeResult(mode_changed=True, new_mode=Mode.MARK_SET,
-                            message="Set mark: press a-z or 0-9")
+            return ModeResult(
+                mode_changed=True,
+                new_mode=Mode.MARK_SET,
+                message="Set mark: press a-z or 0-9",
+            )
         if event.char == "'":
             self.set_mode(Mode.MARK_JUMP)
-            return ModeResult(mode_changed=True, new_mode=Mode.MARK_JUMP,
-                            message="Jump to mark: press a-z or 0-9")
+            return ModeResult(
+                mode_changed=True,
+                new_mode=Mode.MARK_JUMP,
+                message="Jump to mark: press a-z or 0-9",
+            )
 
         # Visual selection mode
-        if event.char == 'v':
+        if event.char == "v":
             cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
-            self.selection = Selection(anchor_x=cx, anchor_y=cy, cursor_x=cx, cursor_y=cy)
+            self.selection = Selection(
+                anchor_x=cx, anchor_y=cy, cursor_x=cx, cursor_y=cy
+            )
             self.set_mode(Mode.VISUAL)
-            return ModeResult(mode_changed=True, new_mode=Mode.VISUAL,
-                            message="-- VISUAL -- (1x1)")
+            return ModeResult(
+                mode_changed=True, new_mode=Mode.VISUAL, message="-- VISUAL -- (1x1)"
+            )
 
         # Draw mode (line drawing)
-        if event.char == 'D':
+        if event.char == "D":
             self._draw_last_dir = None
             self._draw_pen_down = True  # Start with pen down
             self.set_mode(Mode.DRAW)
-            return ModeResult(mode_changed=True, new_mode=Mode.DRAW,
-                            message="-- DRAW -- pen DOWN (wasd to draw, space to lift)")
+            return ModeResult(
+                mode_changed=True,
+                new_mode=Mode.DRAW,
+                message="-- DRAW -- pen DOWN (wasd to draw, space to lift)",
+            )
+
+        # Undo (vim-style)
+        if event.char == "u":
+            return ModeResult(command="undo")
 
         return ModeResult(handled=False)
 
@@ -527,7 +554,14 @@ class ModeStateMachine:
         # Handle typed characters
         if event.char:
             cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+            # Record undo state
+            if self.undo_manager:
+                self.undo_manager.begin_operation("Type")
+                self.undo_manager.record_cell_before(self.canvas, cx, cy)
             self.canvas.set(cx, cy, event.char, fg=self.draw_fg, bg=self.draw_bg)
+            if self.undo_manager:
+                self.undo_manager.record_cell_after(self.canvas, cx, cy)
+                self.undo_manager.end_operation()
 
             if cfg.auto_advance:
                 dx, dy = cfg.advance_direction
@@ -546,13 +580,29 @@ class ModeStateMachine:
         if action == Action.BACKSPACE:
             dx, dy = cfg.advance_direction
             self.viewport.move_cursor(-dx, -dy)
-            self.canvas.clear(self.viewport.cursor.x, self.viewport.cursor.y)
+            cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+            # Record undo state
+            if self.undo_manager:
+                self.undo_manager.begin_operation("Delete")
+                self.undo_manager.record_cell_before(self.canvas, cx, cy)
+            self.canvas.clear(cx, cy)
+            if self.undo_manager:
+                self.undo_manager.record_cell_after(self.canvas, cx, cy)
+                self.undo_manager.end_operation()
             self.viewport.ensure_cursor_visible(margin=cfg.scroll_margin)
             return ModeResult()
 
         # Delete - clear current cell
         if action == Action.DELETE_CHAR:
-            self.canvas.clear(self.viewport.cursor.x, self.viewport.cursor.y)
+            cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+            # Record undo state
+            if self.undo_manager:
+                self.undo_manager.begin_operation("Delete")
+                self.undo_manager.record_cell_before(self.canvas, cx, cy)
+            self.canvas.clear(cx, cy)
+            if self.undo_manager:
+                self.undo_manager.record_cell_after(self.canvas, cx, cy)
+                self.undo_manager.end_operation()
             return ModeResult()
 
         # Newline - move to next line, reset X to where edit started
@@ -630,20 +680,82 @@ class ModeStateMachine:
         # Fall back to raw_key for bound keys (like 'a' and '0')
         if event.raw_key:
             from pygame.locals import (
-                K_a, K_b, K_c, K_d, K_e, K_f, K_g, K_h, K_i, K_j, K_k, K_l, K_m,
-                K_n, K_o, K_p, K_q, K_r, K_s, K_t, K_u, K_v, K_w, K_x, K_y, K_z,
-                K_0, K_1, K_2, K_3, K_4, K_5, K_6, K_7, K_8, K_9
+                K_a,
+                K_b,
+                K_c,
+                K_d,
+                K_e,
+                K_f,
+                K_g,
+                K_h,
+                K_i,
+                K_j,
+                K_k,
+                K_l,
+                K_m,
+                K_n,
+                K_o,
+                K_p,
+                K_q,
+                K_r,
+                K_s,
+                K_t,
+                K_u,
+                K_v,
+                K_w,
+                K_x,
+                K_y,
+                K_z,
+                K_0,
+                K_1,
+                K_2,
+                K_3,
+                K_4,
+                K_5,
+                K_6,
+                K_7,
+                K_8,
+                K_9,
             )
 
             # Map key codes to characters
             key_map = {
-                K_a: 'a', K_b: 'b', K_c: 'c', K_d: 'd', K_e: 'e', K_f: 'f',
-                K_g: 'g', K_h: 'h', K_i: 'i', K_j: 'j', K_k: 'k', K_l: 'l',
-                K_m: 'm', K_n: 'n', K_o: 'o', K_p: 'p', K_q: 'q', K_r: 'r',
-                K_s: 's', K_t: 't', K_u: 'u', K_v: 'v', K_w: 'w', K_x: 'x',
-                K_y: 'y', K_z: 'z',
-                K_0: '0', K_1: '1', K_2: '2', K_3: '3', K_4: '4',
-                K_5: '5', K_6: '6', K_7: '7', K_8: '8', K_9: '9',
+                K_a: "a",
+                K_b: "b",
+                K_c: "c",
+                K_d: "d",
+                K_e: "e",
+                K_f: "f",
+                K_g: "g",
+                K_h: "h",
+                K_i: "i",
+                K_j: "j",
+                K_k: "k",
+                K_l: "l",
+                K_m: "m",
+                K_n: "n",
+                K_o: "o",
+                K_p: "p",
+                K_q: "q",
+                K_r: "r",
+                K_s: "s",
+                K_t: "t",
+                K_u: "u",
+                K_v: "v",
+                K_w: "w",
+                K_x: "x",
+                K_y: "y",
+                K_z: "z",
+                K_0: "0",
+                K_1: "1",
+                K_2: "2",
+                K_3: "3",
+                K_4: "4",
+                K_5: "5",
+                K_6: "6",
+                K_7: "7",
+                K_8: "8",
+                K_9: "9",
             }
 
             return key_map.get(event.raw_key)
@@ -662,12 +774,14 @@ class ModeStateMachine:
             return ModeResult(
                 mode_changed=True,
                 new_mode=Mode.NAV,
-                message=f"Mark '{key_char}' set at ({x}, {y})"
+                message=f"Mark '{key_char}' set at ({x}, {y})",
             )
 
         # Any other key cancels
         self.set_mode(Mode.NAV)
-        return ModeResult(mode_changed=True, new_mode=Mode.NAV, message="Mark cancelled")
+        return ModeResult(
+            mode_changed=True, new_mode=Mode.NAV, message="Mark cancelled"
+        )
 
     def _process_mark_jump(self, event: "InputEvent") -> ModeResult:
         """Process input in MARK_JUMP mode - waiting for bookmark key."""
@@ -683,19 +797,21 @@ class ModeStateMachine:
                 return ModeResult(
                     mode_changed=True,
                     new_mode=Mode.NAV,
-                    message=f"Jumped to mark '{key_char}' ({bookmark.x}, {bookmark.y})"
+                    message=f"Jumped to mark '{key_char}' ({bookmark.x}, {bookmark.y})",
                 )
             else:
                 self.set_mode(Mode.NAV)
                 return ModeResult(
                     mode_changed=True,
                     new_mode=Mode.NAV,
-                    message=f"Mark '{key_char}' not set"
+                    message=f"Mark '{key_char}' not set",
                 )
 
         # Any other key cancels
         self.set_mode(Mode.NAV)
-        return ModeResult(mode_changed=True, new_mode=Mode.NAV, message="Jump cancelled")
+        return ModeResult(
+            mode_changed=True, new_mode=Mode.NAV, message="Jump cancelled"
+        )
 
     def _handle_movement(self, action: "Action", step: int, fast_step: int) -> bool:
         """Handle cursor movement actions. Returns True if moved."""
@@ -740,9 +856,7 @@ class ModeStateMachine:
         self.register_command("delmarks", self._cmd_delmarks)
 
     def register_command(
-        self,
-        name: str,
-        handler: Callable[[list[str]], ModeResult]
+        self, name: str, handler: Callable[[list[str]], ModeResult]
     ) -> None:
         """Register a command handler."""
         self._command_handlers[name.lower()] = handler
@@ -876,17 +990,14 @@ class ModeStateMachine:
             dx, dy = move_map[action]
             # Move both cursor and selection cursor
             self.viewport.move_cursor(dx, dy)
-            self.selection.update_cursor(
-                self.viewport.cursor.x,
-                self.viewport.cursor.y
-            )
+            self.selection.update_cursor(self.viewport.cursor.x, self.viewport.cursor.y)
             self.viewport.ensure_cursor_visible(margin=cfg.scroll_margin)
             # Update status with selection size
             w, h = self.selection.width, self.selection.height
             return ModeResult(message=f"-- VISUAL -- ({w}x{h})")
 
         # Yank selection
-        if event.char == 'y':
+        if event.char == "y":
             # Signal to yank selection, handled by main.py
             sel = self.selection
             self.selection = None
@@ -894,11 +1005,11 @@ class ModeStateMachine:
             return ModeResult(
                 mode_changed=True,
                 new_mode=Mode.NAV,
-                command=f"yank_selection {sel.x1} {sel.y1} {sel.width} {sel.height}"
+                command=f"yank_selection {sel.x1} {sel.y1} {sel.width} {sel.height}",
             )
 
         # Delete selection
-        if event.char == 'd':
+        if event.char == "d":
             # Signal to delete selection, handled by main.py
             sel = self.selection
             self.selection = None
@@ -906,21 +1017,23 @@ class ModeStateMachine:
             return ModeResult(
                 mode_changed=True,
                 new_mode=Mode.NAV,
-                command=f"delete_selection {sel.x1} {sel.y1} {sel.width} {sel.height}"
+                command=f"delete_selection {sel.x1} {sel.y1} {sel.width} {sel.height}",
             )
 
         # Fill selection (trigger command mode with fill)
-        if event.char == 'f':
+        if event.char == "f":
             sel = self.selection
             self.selection = None
             self.set_mode(Mode.COMMAND)
             # Pre-fill command buffer with fill command template
-            self.command_buffer.text = f"fill {sel.x1} {sel.y1} {sel.width} {sel.height} "
+            self.command_buffer.text = (
+                f"fill {sel.x1} {sel.y1} {sel.width} {sel.height} "
+            )
             self.command_buffer.cursor_pos = len(self.command_buffer.text)
             return ModeResult(
                 mode_changed=True,
                 new_mode=Mode.COMMAND,
-                message="Fill selection with character:"
+                message="Fill selection with character:",
             )
 
         return ModeResult(handled=False)
@@ -930,6 +1043,7 @@ class ModeStateMachine:
         from input import Action
         from zones import get_border_chars
         import logging
+
         _draw_log = logging.getLogger("joystick_debug")
 
         action = event.action
@@ -947,13 +1061,22 @@ class ModeStateMachine:
             dx, dy = dir_map[action]
             x, y = self.viewport.cursor.x, self.viewport.cursor.y
 
-            _draw_log.debug(f"DRAW move: pen_down={self._draw_pen_down}, action={action.name}")
+            _draw_log.debug(
+                f"DRAW move: pen_down={self._draw_pen_down}, action={action.name}"
+            )
 
             # Only draw if pen is down
             if self._draw_pen_down:
                 # Get the line character for current position
                 char = self._get_draw_char(x, y, self._draw_last_dir, (dx, dy))
+                # Record undo state
+                if self.undo_manager:
+                    self.undo_manager.begin_operation("Draw")
+                    self.undo_manager.record_cell_before(self.canvas, x, y)
                 self.canvas.set(x, y, char, fg=self.draw_fg, bg=self.draw_bg)
+                if self.undo_manager:
+                    self.undo_manager.record_cell_after(self.canvas, x, y)
+                    self.undo_manager.end_operation()
                 # Update last direction only when drawing
                 self._draw_last_dir = (dx, dy)
             else:
@@ -967,7 +1090,7 @@ class ModeStateMachine:
             return ModeResult()
 
         # Space bar toggles pen up/down (with frame guard to prevent double-toggle)
-        if event.char == ' ':
+        if event.char == " ":
             if self._pen_toggled_this_frame:
                 _draw_log.debug(f"SPACEBAR: BLOCKED by frame guard (already toggled)")
                 return ModeResult()  # Already toggled this frame, ignore
@@ -982,6 +1105,7 @@ class ModeStateMachine:
     def toggle_draw_pen(self) -> bool:
         """Toggle pen up/down state in DRAW mode. Returns new state (True=down)."""
         import logging
+
         _draw_log = logging.getLogger("joystick_debug")
         _draw_log.debug(f"toggle_draw_pen() called: before={self._draw_pen_down}")
         self._draw_pen_down = not self._draw_pen_down
@@ -997,11 +1121,7 @@ class ModeStateMachine:
         self._pen_toggled_this_frame = False
 
     def _get_draw_char(
-        self,
-        x: int,
-        y: int,
-        from_dir: tuple[int, int] | None,
-        to_dir: tuple[int, int]
+        self, x: int, y: int, from_dir: tuple[int, int] | None, to_dir: tuple[int, int]
     ) -> str:
         """
         Determine the appropriate line character based on directions.
@@ -1026,17 +1146,17 @@ class ModeStateMachine:
 
         # Map bit combinations to character keys
         bit_to_char = {
-            LEFT | RIGHT: "horiz",           # ─
-            UP | DOWN: "vert",               # │
-            DOWN | RIGHT: "tl",              # ┌ (going down-right, corner at top-left)
-            DOWN | LEFT: "tr",               # ┐
-            UP | RIGHT: "bl",                # └
-            UP | LEFT: "br",                 # ┘
-            LEFT | RIGHT | DOWN: "tee_down", # ┬
-            LEFT | RIGHT | UP: "tee_up",     # ┴
+            LEFT | RIGHT: "horiz",  # ─
+            UP | DOWN: "vert",  # │
+            DOWN | RIGHT: "tl",  # ┌ (going down-right, corner at top-left)
+            DOWN | LEFT: "tr",  # ┐
+            UP | RIGHT: "bl",  # └
+            UP | LEFT: "br",  # ┘
+            LEFT | RIGHT | DOWN: "tee_down",  # ┬
+            LEFT | RIGHT | UP: "tee_up",  # ┴
             UP | DOWN | RIGHT: "tee_right",  # ├
-            UP | DOWN | LEFT: "tee_left",    # ┤
-            UP | DOWN | LEFT | RIGHT: "cross", # ┼
+            UP | DOWN | LEFT: "tee_left",  # ┤
+            UP | DOWN | LEFT | RIGHT: "cross",  # ┼
         }
 
         # Calculate current direction bits
