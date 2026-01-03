@@ -9,7 +9,12 @@ from canvas import Canvas
 from viewport import Viewport
 from input import Action, InputEvent
 from modes import (
-    Mode, ModeConfig, CommandBuffer, ModeResult, ModeStateMachine, Selection
+    Mode,
+    ModeConfig,
+    CommandBuffer,
+    ModeResult,
+    ModeStateMachine,
+    Selection,
 )
 
 
@@ -27,9 +32,9 @@ class TestCommandBuffer:
 
     def test_insert(self):
         buf = CommandBuffer()
-        buf.insert('a')
-        buf.insert('b')
-        buf.insert('c')
+        buf.insert("a")
+        buf.insert("b")
+        buf.insert("c")
         assert buf.text == "abc"
         assert buf.cursor_pos == 3
 
@@ -37,7 +42,7 @@ class TestCommandBuffer:
         buf = CommandBuffer()
         buf.text = "ac"
         buf.cursor_pos = 1
-        buf.insert('b')
+        buf.insert("b")
         assert buf.text == "abc"
 
     def test_backspace(self):
@@ -204,16 +209,16 @@ class TestModeStateMachine:
         self.sm.set_mode(Mode.EDIT)
         self.viewport.cursor.set(5, 5)
 
-        result = self.sm.process(char_event('X'))
+        result = self.sm.process(char_event("X"))
         assert result.handled
-        assert self.canvas.get_char(5, 5) == 'X'
+        assert self.canvas.get_char(5, 5) == "X"
         # Cursor should advance
         assert self.viewport.cursor.x == 6
 
     def test_edit_mode_backspace(self):
         self.sm.set_mode(Mode.EDIT)
         self.viewport.cursor.set(5, 5)
-        self.canvas.set(4, 5, 'A')
+        self.canvas.set(4, 5, "A")
 
         result = self.sm.process(action_event(Action.BACKSPACE))
         assert result.handled
@@ -223,7 +228,7 @@ class TestModeStateMachine:
     def test_edit_mode_delete(self):
         self.sm.set_mode(Mode.EDIT)
         self.viewport.cursor.set(5, 5)
-        self.canvas.set(5, 5, 'A')
+        self.canvas.set(5, 5, "A")
 
         result = self.sm.process(action_event(Action.DELETE_CHAR))
         assert self.canvas.is_empty_at(5, 5)
@@ -249,10 +254,10 @@ class TestModeStateMachine:
     # COMMAND mode tests
     def test_command_mode_typing(self):
         self.sm.set_mode(Mode.COMMAND)
-        self.sm.process(char_event('g'))
-        self.sm.process(char_event('o'))
-        self.sm.process(char_event('t'))
-        self.sm.process(char_event('o'))
+        self.sm.process(char_event("g"))
+        self.sm.process(char_event("o"))
+        self.sm.process(char_event("t"))
+        self.sm.process(char_event("o"))
 
         assert self.sm.command_buffer.text == "goto"
 
@@ -326,8 +331,8 @@ class TestModeStateMachine:
         assert self.viewport.origin.y == 200
 
     def test_command_clear(self):
-        self.canvas.set(0, 0, 'X')
-        self.canvas.set(10, 10, 'Y')
+        self.canvas.set(0, 0, "X")
+        self.canvas.set(10, 10, "Y")
         assert self.canvas.cell_count == 2
 
         self.sm.set_mode(Mode.COMMAND)
@@ -454,7 +459,7 @@ class TestVisualMode:
     def test_enter_visual_mode(self):
         """TC1a: Enter VISUAL mode from NAV with 'v' key."""
         self.viewport.cursor.set(10, 20)
-        result = self.sm.process(char_event('v'))
+        result = self.sm.process(char_event("v"))
 
         assert result.mode_changed
         assert result.new_mode == Mode.VISUAL
@@ -471,7 +476,7 @@ class TestVisualMode:
     def test_exit_visual_mode_esc(self):
         """TC1b: Exit VISUAL mode with ESC, selection cleared."""
         self.viewport.cursor.set(10, 20)
-        self.sm.process(char_event('v'))  # Enter VISUAL
+        self.sm.process(char_event("v"))  # Enter VISUAL
         assert self.sm.selection is not None
 
         result = self.sm.process(action_event(Action.EXIT_MODE))
@@ -483,13 +488,14 @@ class TestVisualMode:
     def test_enter_visual_creates_fresh_selection(self):
         """TC1c: Entering VISUAL again creates fresh selection."""
         self.viewport.cursor.set(10, 20)
-        self.sm.process(char_event('v'))  # Enter VISUAL
+        self.sm.process(char_event("v"))  # Enter VISUAL
         self.sm.process(action_event(Action.MOVE_RIGHT))  # Extend
         self.sm.process(action_event(Action.EXIT_MODE))  # Exit
 
         # Enter again at different position
         self.viewport.cursor.set(50, 60)
-        result = self.sm.process(char_event('v'))
+        result = self.sm.process(char_event("v"))
+        assert result.mode_changed
 
         assert self.sm.selection.anchor_x == 50
         assert self.sm.selection.anchor_y == 60
@@ -500,7 +506,7 @@ class TestVisualMode:
     def test_extend_selection_right(self):
         """TC2a: Moving right extends selection."""
         self.viewport.cursor.set(10, 10)
-        self.sm.process(char_event('v'))
+        self.sm.process(char_event("v"))
 
         result = self.sm.process(action_event(Action.MOVE_RIGHT))
         assert self.sm.selection.width == 2
@@ -511,7 +517,7 @@ class TestVisualMode:
     def test_extend_selection_down(self):
         """TC2b: Moving down extends selection."""
         self.viewport.cursor.set(10, 10)
-        self.sm.process(char_event('v'))
+        self.sm.process(char_event("v"))
 
         result = self.sm.process(action_event(Action.MOVE_DOWN))
         assert self.sm.selection.width == 1
@@ -522,7 +528,7 @@ class TestVisualMode:
     def test_extend_selection_diagonal(self):
         """TC2c: Moving in multiple directions creates rectangle."""
         self.viewport.cursor.set(10, 10)
-        self.sm.process(char_event('v'))
+        self.sm.process(char_event("v"))
 
         self.sm.process(action_event(Action.MOVE_RIGHT))
         self.sm.process(action_event(Action.MOVE_RIGHT))
@@ -535,9 +541,10 @@ class TestVisualMode:
     def test_extend_selection_fast_movement(self):
         """TC2d: Fast movement extends selection by fast_step."""
         self.viewport.cursor.set(10, 10)
-        self.sm.process(char_event('v'))
+        self.sm.process(char_event("v"))
 
         result = self.sm.process(action_event(Action.MOVE_RIGHT_FAST))
+        assert result.handled
         assert self.sm.selection.width == 11  # 10 + 1
         assert self.viewport.cursor.x == 20
 
@@ -545,7 +552,7 @@ class TestVisualMode:
     def test_shrink_selection(self):
         """TC3: Moving back towards anchor shrinks selection."""
         self.viewport.cursor.set(10, 10)
-        self.sm.process(char_event('v'))
+        self.sm.process(char_event("v"))
         self.sm.process(action_event(Action.MOVE_RIGHT))
         self.sm.process(action_event(Action.MOVE_RIGHT))
         assert self.sm.selection.width == 3
@@ -559,12 +566,12 @@ class TestVisualMode:
     def test_yank_selection(self):
         """TC4: Yank selection returns command with coordinates."""
         self.viewport.cursor.set(5, 10)
-        self.sm.process(char_event('v'))
+        self.sm.process(char_event("v"))
         self.sm.process(action_event(Action.MOVE_RIGHT))
         self.sm.process(action_event(Action.MOVE_RIGHT))
         self.sm.process(action_event(Action.MOVE_DOWN))
 
-        result = self.sm.process(char_event('y'))
+        result = self.sm.process(char_event("y"))
 
         assert result.mode_changed
         assert self.sm.mode == Mode.NAV
@@ -580,11 +587,11 @@ class TestVisualMode:
     def test_delete_selection(self):
         """TC5: Delete selection returns command with coordinates."""
         self.viewport.cursor.set(5, 10)
-        self.sm.process(char_event('v'))
+        self.sm.process(char_event("v"))
         self.sm.process(action_event(Action.MOVE_RIGHT))
         self.sm.process(action_event(Action.MOVE_DOWN))
 
-        result = self.sm.process(char_event('d'))
+        result = self.sm.process(char_event("d"))
 
         assert result.mode_changed
         assert self.sm.mode == Mode.NAV
@@ -598,11 +605,11 @@ class TestVisualMode:
     def test_fill_selection(self):
         """TC6: Fill selection enters COMMAND mode with pre-filled buffer."""
         self.viewport.cursor.set(5, 10)
-        self.sm.process(char_event('v'))
+        self.sm.process(char_event("v"))
         self.sm.process(action_event(Action.MOVE_RIGHT))
         self.sm.process(action_event(Action.MOVE_DOWN))
 
-        result = self.sm.process(char_event('f'))
+        result = self.sm.process(char_event("f"))
 
         assert result.mode_changed
         assert self.sm.mode == Mode.COMMAND
@@ -615,7 +622,7 @@ class TestVisualMode:
     def test_zero_size_selection(self):
         """EC1: Selection with cursor at anchor works correctly."""
         self.viewport.cursor.set(10, 10)
-        self.sm.process(char_event('v'))
+        self.sm.process(char_event("v"))
 
         # Selection should be 1x1
         assert self.sm.selection.width == 1
@@ -624,7 +631,7 @@ class TestVisualMode:
         assert not self.sm.selection.contains(11, 10)
 
         # Yank should still work
-        result = self.sm.process(char_event('y'))
+        result = self.sm.process(char_event("y"))
         assert "1" in result.command  # width
         assert "1" in result.command  # height
 
@@ -632,7 +639,7 @@ class TestVisualMode:
     def test_selection_inversion(self):
         """EC5: Selection works when cursor moves before anchor."""
         self.viewport.cursor.set(10, 10)
-        self.sm.process(char_event('v'))
+        self.sm.process(char_event("v"))
 
         # Move cursor before anchor
         self.sm.process(action_event(Action.MOVE_LEFT))
@@ -653,6 +660,7 @@ class TestVisualMode:
 
         result = self.sm.process(action_event(Action.MOVE_RIGHT))
         # Should recover to NAV mode
+        assert result.mode_changed
         assert self.sm.mode == Mode.NAV
 
 
