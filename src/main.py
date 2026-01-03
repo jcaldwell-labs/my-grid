@@ -1522,7 +1522,33 @@ class Application:
             x2, y2 = int(args[0]), int(args[1])
             char = args[2] if len(args) > 2 else "*"
             cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+
+            # Compute line cells using Bresenham's algorithm for undo recording
+            line_cells = []
+            dx, dy = abs(x2 - cx), abs(y2 - cy)
+            sx, sy = (1 if cx < x2 else -1), (1 if cy < y2 else -1)
+            err, x, y = dx - dy, cx, cy
+            while True:
+                line_cells.append((x, y))
+                if x == x2 and y == y2:
+                    break
+                e2 = 2 * err
+                if e2 > -dy:
+                    err -= dy
+                    x += sx
+                if e2 < dx:
+                    err += dx
+                    y += sy
+
+            # Record undo state
+            self.undo_manager.begin_operation("Line")
+            for lx, ly in line_cells:
+                self.undo_manager.record_cell_before(self.canvas, lx, ly)
             self.canvas.draw_line(cx, cy, x2, y2, char)
+            for lx, ly in line_cells:
+                self.undo_manager.record_cell_after(self.canvas, lx, ly)
+            self.undo_manager.end_operation()
+
             self.project.mark_dirty()
             return ModeResult(message=f"Drew line to ({x2}, {y2})")
         except ValueError:
@@ -1534,7 +1560,16 @@ class Application:
             return ModeResult(message="Usage: text MESSAGE")
         text = " ".join(args)
         cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+
+        # Record undo state for each character position
+        self.undo_manager.begin_operation("Text")
+        for i in range(len(text)):
+            self.undo_manager.record_cell_before(self.canvas, cx + i, cy)
         self.canvas.write_text(cx, cy, text)
+        for i in range(len(text)):
+            self.undo_manager.record_cell_after(self.canvas, cx + i, cy)
+        self.undo_manager.end_operation()
+
         self.project.mark_dirty()
         return ModeResult(message=f"Wrote {len(text)} characters")
 
@@ -1564,12 +1599,23 @@ class Application:
             # Use only the first character
             char = char[0] if char else " "
 
+            # Record undo state for all affected cells
+            self.undo_manager.begin_operation("Fill")
+            for fy in range(y, y + h):
+                for fx in range(x, x + w):
+                    self.undo_manager.record_cell_before(self.canvas, fx, fy)
+
             # Fill the region with current drawing colors
             fg = self.state_machine.draw_fg
             bg = self.state_machine.draw_bg
-            for cy in range(y, y + h):
-                for cx in range(x, x + w):
-                    self.canvas.set(cx, cy, char, fg=fg, bg=bg)
+            for fy in range(y, y + h):
+                for fx in range(x, x + w):
+                    self.canvas.set(fx, fy, char, fg=fg, bg=bg)
+
+            for fy in range(y, y + h):
+                for fx in range(x, x + w):
+                    self.undo_manager.record_cell_after(self.canvas, fx, fy)
+            self.undo_manager.end_operation()
 
             self.project.mark_dirty()
             return ModeResult(message=f"Filled {w}x{h} region with '{char}'")
@@ -2499,8 +2545,8 @@ class Application:
                 s.settimeout(1.0)
                 s.connect(("localhost", zone._control_port))
                 s.sendall(cmd.encode("utf-8") + b"\n")
-                # Read response
-                response = s.recv(1024).decode("utf-8").strip()
+                # Read response (discard - just need to wait for acknowledgment)
+                s.recv(1024)
                 s.close()
                 return ModeResult(message=f"✓ {param_name}={param_value}")
             except ConnectionRefusedError:
@@ -3089,9 +3135,26 @@ class Application:
         skip_spaces = args and args[0].lower() == "skip"
 
         cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+
+        # Calculate paste dimensions for undo recording
+        content = self.clipboard.content
+        paste_h = len(content)
+        paste_w = max((len(line) for line in content), default=0)
+
+        # Record undo state for affected region
+        self.undo_manager.begin_operation("Paste")
+        for py in range(paste_h):
+            for px in range(paste_w):
+                self.undo_manager.record_cell_before(self.canvas, cx + px, cy + py)
+
         w, h = self.clipboard.paste_to_canvas(
             self.canvas, cx, cy, skip_spaces=skip_spaces
         )
+
+        for py in range(paste_h):
+            for px in range(paste_w):
+                self.undo_manager.record_cell_after(self.canvas, cx + px, cy + py)
+        self.undo_manager.end_operation()
 
         if w > 0:
             self.project.mark_dirty()
