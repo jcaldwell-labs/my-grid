@@ -100,10 +100,37 @@ class TestCommandInjectionPrevention:
                 cmd = args[0] if args else kwargs.get("cmd")
                 # If using shell=True, path should be quoted
                 if kwargs.get("shell", False) and isinstance(cmd, str):
-                    # The path should be properly quoted
+                    # shlex.quote wraps paths with single quotes
+                    # The malicious path should be quoted, preventing injection
                     assert (
-                        "'" in cmd or '"' in cmd or "shlex.quote" in str(cmd)
-                    ), "Paths with special chars must be quoted"
+                        "'/tmp/test; rm -rf /'" in cmd
+                    ), f"Path should be quoted with shlex.quote, got: {cmd}"
+
+    def test_wsl_renderer_avoids_double_quoting(self):
+        """Test that WSL commands with pre-quoted templates don't get double-quoted."""
+        from src.zones import render_file_content
+
+        with patch("src.zones.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="file content", stderr=""
+            )
+
+            # Test with WSL mode - templates already have quotes around {file}
+            render_file_content("/tmp/test.md", "plain", use_wsl=True)
+
+            call_args = mock_run.call_args
+            if call_args:
+                args, kwargs = call_args
+                cmd = args[0] if args else kwargs.get("cmd")
+                # WSL command should NOT have double quotes like '''/tmp/test'''
+                # It should have exactly one layer of quoting from the template
+                assert "'''" not in cmd, f"WSL command has double-quoting: {cmd}"
+                # Should contain the path in single quotes (from template)
+                assert (
+                    "'/tmp/test.md'" in cmd
+                    or '"/tmp/test.md"' in cmd
+                    or "/tmp/test.md" in cmd
+                ), f"Path should be present in command: {cmd}"
 
 
 # =============================================================================
@@ -250,10 +277,9 @@ class TestJSONSchemaValidation:
 
     def test_cells_must_have_required_fields(self):
         """Each cell must have x, y, char fields."""
-        from src.project import Project
+        from src.project import Project, validate_project_data
         from src.canvas import Canvas
         from src.viewport import Viewport
-        from src.project import PROJECT_SCHEMA, validate_project_data
 
         # Cell missing required field
         invalid_project = {
@@ -267,7 +293,7 @@ class TestJSONSchemaValidation:
         try:
             validate_project_data(invalid_project)
             pytest.fail("Should have raised validation error for missing 'char' field")
-        except (ValueError, KeyError) as e:
+        except ValueError:
             # Expected behavior - validation catches missing field
             pass
         except ImportError:
