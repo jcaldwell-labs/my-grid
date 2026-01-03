@@ -2164,9 +2164,14 @@ def render_file_content(
             render_path = f"/mnt/{drive}{rest}"
 
     # Security: Quote file path to prevent command injection (Issue #66)
-    # The {file} placeholder in command templates gets user-provided paths
-    quoted_path = shlex.quote(render_path)
-    cmd = cmd_template.format(file=quoted_path)
+    # The {file} placeholder in command templates gets user-provided paths.
+    # Some templates (notably WSL commands) already wrap {file} in quotes;
+    # in those cases, avoid double-quoting to keep the shell syntax valid.
+    if "'{file}'" in cmd_template or '"{file}"' in cmd_template:
+        formatted_path = render_path
+    else:
+        formatted_path = shlex.quote(render_path)
+    cmd = cmd_template.format(file=formatted_path)
 
     try:
         result = subprocess.run(

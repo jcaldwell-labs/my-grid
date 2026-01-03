@@ -26,52 +26,8 @@ PROJECT_VERSION = "1.0"
 
 
 # =============================================================================
-# JSON Schema Validation (Issue #68)
+# JSON Validation (Issue #68)
 # =============================================================================
-
-# Schema for project files - validates structure before loading
-PROJECT_SCHEMA = {
-    "version": {"type": "string", "required": True},
-    "metadata": {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string"},
-            "created": {"type": "string"},
-            "modified": {"type": "string"},
-            "description": {"type": "string"},
-        },
-    },
-    "canvas": {
-        "type": "object",
-        "properties": {
-            "cells": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["x", "y", "char"],
-                    "properties": {
-                        "x": {"type": "integer"},
-                        "y": {"type": "integer"},
-                        "char": {"type": "string"},
-                        "fg": {"type": "integer"},
-                        "bg": {"type": "integer"},
-                    },
-                },
-            },
-        },
-    },
-    "viewport": {
-        "type": "object",
-        "properties": {
-            "x": {"type": "integer"},
-            "y": {"type": "integer"},
-            "cursor": {"type": "object"},
-            "origin": {"type": "object"},
-        },
-    },
-    "bookmarks": {"type": "object"},
-    "zones": {"type": "object"},
-}
 
 
 def validate_project_data(data: dict[str, Any]) -> None:
@@ -86,7 +42,6 @@ def validate_project_data(data: dict[str, Any]) -> None:
 
     Raises:
         ValueError: If required fields are missing or have wrong types
-        KeyError: If critical fields are missing
     """
     # Check version is present and valid
     version = data.get("version")
@@ -114,11 +69,11 @@ def validate_project_data(data: dict[str, Any]) -> None:
             if not isinstance(cell, dict):
                 raise ValueError(f"Invalid cell at index {i}: expected object")
             if "x" not in cell:
-                raise KeyError(f"Cell at index {i} missing required field: x")
+                raise ValueError(f"Cell at index {i} missing required field: x")
             if "y" not in cell:
-                raise KeyError(f"Cell at index {i} missing required field: y")
+                raise ValueError(f"Cell at index {i} missing required field: y")
             if "char" not in cell:
-                raise KeyError(f"Cell at index {i} missing required field: char")
+                raise ValueError(f"Cell at index {i} missing required field: char")
             # Type checks
             if not isinstance(cell.get("x"), (int, float)):
                 raise ValueError(f"Cell at index {i}: x must be a number")

@@ -137,6 +137,7 @@ def get_current_position() -> tuple[int, int]:
                 state = json.loads(data.get("message", "{}"))
                 return state["cursor"]["x"], state["cursor"]["y"]
         except (json.JSONDecodeError, KeyError, TypeError):
+            # Failed to parse server response - fall back to default position (0,0)
             pass
     return 0, 0
 

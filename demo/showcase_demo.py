@@ -53,12 +53,16 @@ def boxes_wrap(content, style="stone"):
     """Wrap content with /usr/bin/boxes - the REAL boxes command."""
     # Write to temp file to avoid shell escaping issues
     import tempfile
+    from pathlib import Path
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         f.write(content)
         tmpfile = f.name
-    result = run_cmd(f"cat {tmpfile} | /usr/bin/boxes -d {style}")
-    run_cmd(f"rm {tmpfile}")
+    try:
+        result = run_cmd(f"cat {tmpfile} | /usr/bin/boxes -d {style}")
+    finally:
+        # Use Path.unlink() for safe file deletion without shell injection risk
+        Path(tmpfile).unlink(missing_ok=True)
     return result
 
 
