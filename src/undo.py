@@ -10,12 +10,13 @@ from typing import TYPE_CHECKING
 from abc import ABC, abstractmethod
 
 if TYPE_CHECKING:
-    from canvas import Canvas, Cell
+    from canvas import Canvas
 
 
 @dataclass
 class CellSnapshot:
     """Snapshot of a single cell's state."""
+
     x: int
     y: int
     char: str
@@ -47,6 +48,7 @@ class UndoableOperation(ABC):
 @dataclass
 class CellOperation(UndoableOperation):
     """Operation affecting one or more cells."""
+
     before: list[CellSnapshot] = field(default_factory=list)
     after: list[CellSnapshot] = field(default_factory=list)
     _description: str = "Edit"
@@ -126,13 +128,9 @@ class UndoManager:
             return
 
         cell = canvas.get(x, y)
-        existed = (x, y) in canvas._cells
+        existed = not canvas.is_empty_at(x, y)
         snap = CellSnapshot(
-            x=x, y=y,
-            char=cell.char,
-            fg=cell.fg,
-            bg=cell.bg,
-            existed=existed
+            x=x, y=y, char=cell.char, fg=cell.fg, bg=cell.bg, existed=existed
         )
         self._current_operation.before.append(snap)
 
@@ -146,13 +144,9 @@ class UndoManager:
             return
 
         cell = canvas.get(x, y)
-        existed = (x, y) in canvas._cells
+        existed = not canvas.is_empty_at(x, y)
         snap = CellSnapshot(
-            x=x, y=y,
-            char=cell.char,
-            fg=cell.fg,
-            bg=cell.bg,
-            existed=existed
+            x=x, y=y, char=cell.char, fg=cell.fg, bg=cell.bg, existed=existed
         )
         self._current_operation.after.append(snap)
 
@@ -240,13 +234,9 @@ class UndoManager:
 def snapshot_cell(canvas: "Canvas", x: int, y: int) -> CellSnapshot:
     """Helper to create a cell snapshot."""
     cell = canvas.get(x, y)
-    existed = (x, y) in canvas._cells
+    existed = not canvas.is_empty_at(x, y)
     return CellSnapshot(
-        x=x, y=y,
-        char=cell.char,
-        fg=cell.fg,
-        bg=cell.bg,
-        existed=existed
+        x=x, y=y, char=cell.char, fg=cell.fg, bg=cell.bg, existed=existed
     )
 
 
