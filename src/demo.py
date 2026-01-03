@@ -53,12 +53,12 @@ class MyGridDemo:
     def draw_arrow(self, x1: int, y1: int, x2: int, y2: int):
         """Draw a simple horizontal arrow between two points."""
         # Draw line
-        self.canvas.draw_line(x1, y1, x2, y2, '-')
+        self.canvas.draw_line(x1, y1, x2, y2, "-")
         # Add arrowhead
         if x2 > x1:
-            self.canvas.set(x2 - 1, y2, '>')
+            self.canvas.set(x2 - 1, y2, ">")
         else:
-            self.canvas.set(x2 + 1, y2, '<')
+            self.canvas.set(x2 + 1, y2, "<")
 
     def run_demo(self, duration: int = 60):
         """
@@ -127,9 +127,9 @@ class MyGridDemo:
                 # Check for early exit (Ctrl+C)
                 try:
                     key = self.stdscr.getch()
-                    if key == ord('q') or key == 3:  # q or Ctrl+C
+                    if key == ord("q") or key == 3:  # q or Ctrl+C
                         self.running = False
-                except:
+                except curses.error:
                     pass
 
                 # 20 FPS for VHS compatibility
@@ -224,27 +224,27 @@ class MyGridDemo:
 
         # BOOKMARKS
         elif description == "Set Architecture Bookmark":
-            self.state_machine.bookmarks.set('a', 50, 12, "Architecture")
+            self.state_machine.bookmarks.set("a", 50, 12, "Architecture")
 
         elif description == "Set Brainstorm Bookmark":
-            self.state_machine.bookmarks.set('b', 150, 14, "Brainstorm")
+            self.state_machine.bookmarks.set("b", 150, 14, "Brainstorm")
 
         elif description == "Set TODO Bookmark":
-            self.state_machine.bookmarks.set('t', 240, 10, "TODO")
+            self.state_machine.bookmarks.set("t", 240, 10, "TODO")
 
         # NAVIGATION (centered!)
         elif description == "Jump to Brainstorm (centered)":
-            bookmark = self.state_machine.bookmarks.get('b')
+            bookmark = self.state_machine.bookmarks.get("b")
             if bookmark:
                 self._center_on_position(bookmark.x, bookmark.y)
 
         elif description == "Jump to TODO (centered)":
-            bookmark = self.state_machine.bookmarks.get('t')
+            bookmark = self.state_machine.bookmarks.get("t")
             if bookmark:
                 self._center_on_position(bookmark.x, bookmark.y)
 
         elif description == "Jump to Architecture (centered)":
-            bookmark = self.state_machine.bookmarks.get('a')
+            bookmark = self.state_machine.bookmarks.get("a")
             if bookmark:
                 self._center_on_position(bookmark.x, bookmark.y)
 
@@ -294,7 +294,11 @@ class MyGridDemo:
             "my-grid - terminal productivity",
         ]
 
-        desc = descriptions[segment_idx] if segment_idx < len(descriptions) else "Exploring canvas..."
+        desc = (
+            descriptions[segment_idx]
+            if segment_idx < len(descriptions)
+            else "Exploring canvas..."
+        )
         cursor = self.viewport.cursor
 
         return f" DEMO │ X:{cursor.x:>5} Y:{cursor.y:>5} │ {desc} │ {int(elapsed)}s"
@@ -302,6 +306,7 @@ class MyGridDemo:
 
 def run_demo(duration: int = 75):
     """Entry point for VHS tape recording."""
+
     def demo_main(stdscr):
         demo = MyGridDemo(stdscr)
         demo.run_demo(duration)
@@ -311,5 +316,6 @@ def run_demo(duration: int = 75):
 
 if __name__ == "__main__":
     import sys
+
     duration = int(sys.argv[1]) if len(sys.argv) > 1 else 75
     run_demo(duration)
