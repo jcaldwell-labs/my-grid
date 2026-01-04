@@ -1455,8 +1455,8 @@ class PTYHandler:
 
                 # Create pyte terminal emulator screen
                 try:
-                    # Use relative import since we're inside src package
-                    from pty_screen import PTYScreen as PTYScreenClass
+                    # Import from src package
+                    from src.pty_screen import PTYScreen as PTYScreenClass
 
                     screen = PTYScreenClass(content_w, content_h, history=1000)
                     zone.append_content(

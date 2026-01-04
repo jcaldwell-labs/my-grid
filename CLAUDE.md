@@ -301,8 +301,8 @@ When focused on a PTY zone, you can scroll through terminal history:
 
 - ANSI colors display correctly (foreground and background)
 - 256-color palette supported (mapped to basic 8 colors)
-- Colors preserved on current screen
-- Note: Scrollback history (from `pyte` limitations) shows plain text without colors
+- Colors preserved on current screen AND in scrollback history
+- Full VT100/ANSI terminal emulation via pyte library
 
 **Use Cases:**
 
