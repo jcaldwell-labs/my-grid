@@ -1,6 +1,5 @@
 """Tests for PTY terminal emulation using pyte."""
 
-import pytest
 from src.pty_screen import PTYScreen
 
 

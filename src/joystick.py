@@ -9,7 +9,7 @@ import time
 import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Optional, Callable
+from typing import Optional
 
 # pygame import is deferred to avoid loading if not needed
 _pygame_available: Optional[bool] = None

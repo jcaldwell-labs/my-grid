@@ -1041,7 +1041,6 @@ class ModeStateMachine:
     def _process_draw(self, event: "InputEvent") -> ModeResult:
         """Process input in DRAW mode - movement draws lines."""
         from input import Action
-        from zones import get_border_chars
         import logging
 
         _draw_log = logging.getLogger("joystick_debug")
@@ -1092,7 +1091,7 @@ class ModeStateMachine:
         # Space bar toggles pen up/down (with frame guard to prevent double-toggle)
         if event.char == " ":
             if self._pen_toggled_this_frame:
-                _draw_log.debug(f"SPACEBAR: BLOCKED by frame guard (already toggled)")
+                _draw_log.debug("SPACEBAR: BLOCKED by frame guard (already toggled)")
                 return ModeResult()  # Already toggled this frame, ignore
             _draw_log.debug(f"SPACEBAR: pen_before={self._draw_pen_down}")
             pen_down = self.toggle_draw_pen()

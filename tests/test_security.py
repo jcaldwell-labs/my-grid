@@ -9,7 +9,6 @@ Tests for:
 
 import json
 import pytest
-import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -277,9 +276,7 @@ class TestJSONSchemaValidation:
 
     def test_cells_must_have_required_fields(self):
         """Each cell must have x, y, char fields."""
-        from src.project import Project, validate_project_data
-        from src.canvas import Canvas
-        from src.viewport import Viewport
+        from src.project import validate_project_data
 
         # Cell missing required field
         invalid_project = {
@@ -320,7 +317,7 @@ class TestStaticAnalysis:
                     if stripped == "except:":
                         violations.append(f"{py_file.name}:{i}: {line.strip()}")
 
-        assert not violations, f"Found bare except clauses:\n" + "\n".join(violations)
+        assert not violations, "Found bare except clauses:\n" + "\n".join(violations)
 
     def test_no_shell_true_without_shlex(self):
         """Verify shell=True calls use shlex.quote for user input."""

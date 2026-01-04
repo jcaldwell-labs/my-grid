@@ -12,7 +12,6 @@ Because 42 is the answer, even if we don't know the question.
 from canvas import Canvas
 from viewport import Viewport
 from renderer import GridSettings
-from project import Project
 from pathlib import Path
 import textwrap
 

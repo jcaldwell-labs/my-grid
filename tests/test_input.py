@@ -6,16 +6,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Import pygame to get real constants
-import pygame
 from pygame.locals import (
-    K_w, K_a, K_s, K_d, K_q, K_i,
-    K_UP, K_DOWN, K_LEFT, K_RIGHT, K_ESCAPE,
-    KMOD_CTRL, KMOD_SHIFT, KMOD_ALT, KMOD_META
+    K_w, K_a, K_s, K_q, K_UP, K_DOWN, KMOD_CTRL, KMOD_SHIFT, KMOD_ALT
 )
 
 from input import (
-    Action, KeyBinding, InputEvent, InputHandler,
-    format_binding
+    Action, KeyBinding, InputEvent, InputHandler
 )
 
 

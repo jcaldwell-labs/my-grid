@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from viewport import Viewport, Cursor, Origin, YAxisDirection
+from viewport import Viewport, YAxisDirection
 
 
 def test_default_viewport():

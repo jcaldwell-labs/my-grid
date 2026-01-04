@@ -6,7 +6,6 @@ sequences, and provides scrollback history.
 """
 
 import pyte
-from typing import Optional
 from dataclasses import dataclass
 
 

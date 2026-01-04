@@ -17,7 +17,6 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Queue
-from typing import Callable
 
 from command_queue import CommandQueue, CommandResponse
 

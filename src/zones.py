@@ -18,7 +18,7 @@ Zone types enable dynamic content:
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Iterator, Any
+from typing import Iterator
 import math
 import re
 import shlex
@@ -1188,7 +1188,6 @@ class ZoneManager:
 
 import subprocess
 import threading
-import time
 
 
 class ZoneExecutor:
@@ -1342,7 +1341,6 @@ class ZoneExecutor:
 # =============================================================================
 
 import os
-import sys
 import signal
 import struct
 
@@ -1580,7 +1578,7 @@ class PTYHandler:
                     error_msg = f"[PTY error: {e}]"
                     error_line = [StyledChar(ch, 1, -1) for ch in error_msg]  # Red text
                     zone.set_styled_content(styled_lines + [error_line])
-                except (ImportError, AttributeError, TypeError) as inner_e:
+                except (ImportError, AttributeError, TypeError):
                     from src.pty_screen import StyledChar
 
                     error_msg = f"[PTY error: {e}]"
@@ -1983,7 +1981,6 @@ class Clipboard:
 # PAGER HANDLER - Paginated file viewer with renderer selection
 # =============================================================================
 
-import shutil
 
 # Renderer configurations for different file types
 PAGER_RENDERERS = {
@@ -2370,7 +2367,7 @@ class FIFOHandler:
                 finally:
                     os.close(fd)
 
-            except OSError as e:
+            except OSError:
                 if stop_event.is_set():
                     break
                 # Brief sleep before retry

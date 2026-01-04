@@ -5,7 +5,7 @@ Renders the visible portion of the canvas through the viewport.
 """
 
 import curses
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 

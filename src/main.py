@@ -15,14 +15,13 @@ from pathlib import Path
 from canvas import Canvas, parse_color, COLOR_NUMBERS
 from viewport import Viewport
 from undo import UndoManager
-from renderer import Renderer, GridSettings, GridLineMode, create_status_line
+from renderer import Renderer, GridLineMode
 from input import InputHandler, Action, InputEvent
 from modes import Mode, ModeConfig, ModeStateMachine, ModeResult
 from project import Project, add_recent_project, suggest_filename, SessionManager
 from command_queue import CommandQueue, CommandResponse, send_response
 from server import APIServer, ServerConfig
 from zones import (
-    Zone,
     ZoneManager,
     ZoneExecutor,
     ZoneType,
@@ -50,7 +49,7 @@ from external import (
     pipe_command,
     write_lines_to_canvas,
 )
-from joystick import JoystickHandler, JoystickConfig, JoystickDirection
+from joystick import JoystickHandler
 
 logger = logging.getLogger(__name__)
 
@@ -657,7 +656,7 @@ class Application:
                     # In DRAW mode, toggle pen up/down (with frame guard)
                     if self.state_machine._pen_toggled_this_frame:
                         _joy_log.debug(
-                            f"BTN0 in DRAW: BLOCKED by frame guard (already toggled)"
+                            "BTN0 in DRAW: BLOCKED by frame guard (already toggled)"
                         )
                         continue  # Skip this button, already toggled this frame
                     before = self.state_machine._draw_pen_down
@@ -715,7 +714,7 @@ class Application:
             data = "\x1b[F"
         elif key == 10 or key == 13:  # Enter
             data = "\r"  # Use carriage return instead of newline for PTY
-            self._show_message(f"DEBUG: Sending Enter (\\r) to PTY", frames=120)
+            self._show_message("DEBUG: Sending Enter (\\r) to PTY", frames=120)
         elif key == 9:  # Tab
             data = "\t"
         elif 1 <= key <= 26:  # Ctrl+A through Ctrl+Z
@@ -1963,7 +1962,7 @@ class Application:
                 self.project.mark_dirty()
                 return ModeResult(message=f"Renamed '{args[1]}' to '{args[2]}'")
             return ModeResult(
-                message=f"Failed to rename (zone not found or name conflict)"
+                message="Failed to rename (zone not found or name conflict)"
             )
 
         # :zone resize NAME W H
@@ -2883,7 +2882,6 @@ class Application:
 
         # :session save
         elif subcmd == "save":
-            import time
 
             self.session_manager._last_save_time = 0  # Force save
             result = self.session_manager.auto_save(

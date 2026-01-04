@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from canvas import Canvas, BoundingBox
+from canvas import Canvas
 
 
 def test_empty_canvas():

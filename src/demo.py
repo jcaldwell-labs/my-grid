@@ -9,11 +9,10 @@ system diagrams, similar to Miro or Lucidchart but in the terminal.
 
 import time
 import curses
-from pathlib import Path
 
 from canvas import Canvas
 from viewport import Viewport
-from renderer import Renderer, GridSettings
+from renderer import Renderer
 from modes import ModeStateMachine, ModeConfig
 from project import Project
 

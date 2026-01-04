@@ -10,7 +10,6 @@ Provides integration with:
 import subprocess
 import shutil
 from dataclasses import dataclass
-from typing import Callable
 
 
 @dataclass

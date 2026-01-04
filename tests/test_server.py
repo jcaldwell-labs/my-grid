@@ -7,7 +7,6 @@ import sys
 import threading
 import time
 from pathlib import Path
-from queue import Queue
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
