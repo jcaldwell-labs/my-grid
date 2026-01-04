@@ -2,8 +2,7 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import threading
+from unittest.mock import patch, MagicMock
 import time
 
 # Add src to path for imports
@@ -774,7 +773,7 @@ class TestZoneManagerOperations:
 
     def test_clear_with_canvas(self):
         manager = ZoneManager()
-        zone = manager.create("zone1", 0, 0, 10, 5)
+        manager.create("zone1", 0, 0, 10, 5)
         canvas = MockCanvas()
 
         # Put content
@@ -874,7 +873,7 @@ class TestZoneExecutor:
         zone = manager.create_pipe("test", 0, 0, 50, 20, "echo error >&2")
         executor = ZoneExecutor(manager)
 
-        result = executor.execute_pipe(zone)
+        executor.execute_pipe(zone)
         # stderr is captured and appended
         assert any("error" in line for line in zone.content_lines)
 

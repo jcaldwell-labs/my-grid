@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 import subprocess
 
 # Add src to path for imports
@@ -682,9 +682,10 @@ java-doc (alias: javadoc)"""
                 assert "simple123" in styles
                 # Should skip lines starting with - or (
                 assert "---" not in "".join(styles)
-                # Filter out non-alphanumeric first words
-                # "c-cmt" starts with c which is alphanumeric
-                # "indented" after strip starts with i which is alphanumeric
+                # Styles with non-alphanumeric chars (hyphens) are filtered out
+                assert "c-cmt" not in styles
+                # Indented styles should be included after stripping whitespace
+                assert "indented" in styles
 
     def test_remove_box_removes_trailing_empty_lines(self):
         mock_result = MagicMock()

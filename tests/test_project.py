@@ -1,7 +1,6 @@
 """Tests for project save/load functionality."""
 
 import json
-import os
 import sys
 import tempfile
 import time
@@ -24,7 +23,7 @@ from project import (
     SessionManager,
 )
 from modes import BookmarkManager
-from zones import ZoneManager, Zone, ZoneConfig, ZoneType
+from zones import ZoneManager, ZoneConfig, ZoneType
 
 
 class TestProjectMetadata:
@@ -42,8 +41,6 @@ class TestProjectMetadata:
         original_modified = meta.modified
 
         # Small delay to ensure timestamp changes
-        import time
-
         time.sleep(0.01)
 
         meta.touch()
@@ -162,9 +159,7 @@ class TestProject:
         new_canvas = Canvas()
         new_viewport = Viewport()
         new_grid = GridSettings()
-        loaded = Project.load(
-            filepath, new_canvas, new_viewport, grid_settings=new_grid
-        )
+        Project.load(filepath, new_canvas, new_viewport, grid_settings=new_grid)
 
         assert new_grid.show_origin == False
         assert new_grid.show_major_lines == True
@@ -427,7 +422,7 @@ class TestImportTextAdvanced:
         filepath = Path(self.temp_dir) / "tabs.txt"
         filepath.write_text("A\tB\tC")
 
-        project = Project.import_text(filepath, self.canvas, self.viewport)
+        Project.import_text(filepath, self.canvas, self.viewport)
 
         # Tabs should be preserved as tab characters
         assert self.canvas.get_char(0, 0) == "A"
@@ -439,7 +434,7 @@ class TestImportTextAdvanced:
         filepath = Path(self.temp_dir) / "spaces.txt"
         filepath.write_text("A   B")
 
-        project = Project.import_text(filepath, self.canvas, self.viewport)
+        Project.import_text(filepath, self.canvas, self.viewport)
 
         # Only non-space chars should be stored
         assert self.canvas.get_char(0, 0) == "A"
@@ -470,7 +465,7 @@ class TestImportTextAdvanced:
         filepath = Path(self.temp_dir) / "unicode.txt"
         filepath.write_text("Hello, \u4e16\u754c!")  # Hello, World! in Chinese chars
 
-        project = Project.import_text(filepath, self.canvas, self.viewport)
+        Project.import_text(filepath, self.canvas, self.viewport)
 
         assert self.canvas.get_char(7, 0) == "\u4e16"
         assert self.canvas.get_char(8, 0) == "\u754c"

@@ -20,7 +20,7 @@ from layouts import (
     get_layouts_dir,
     install_default_layouts,
 )
-from zones import Zone, ZoneConfig, ZoneExecutor, ZoneManager, ZoneType
+from zones import ZoneExecutor, ZoneManager, ZoneType
 
 
 class TestLayoutZone:
@@ -820,7 +820,7 @@ class TestLayoutManagerSaveFromZones:
             bookmark="n",
         )
 
-        path = self.layout_manager.save_from_zones(
+        self.layout_manager.save_from_zones(
             name="static",
             description="Static zones",
             zone_manager=self.zone_manager,
@@ -846,7 +846,7 @@ class TestLayoutManagerSaveFromZones:
             bookmark="s",
         )
 
-        path = self.layout_manager.save_from_zones(
+        self.layout_manager.save_from_zones(
             name="watch",
             description="Watch zones",
             zone_manager=self.zone_manager,
@@ -871,7 +871,7 @@ class TestLayoutManagerSaveFromZones:
             bookmark="t",
         )
 
-        path = self.layout_manager.save_from_zones(
+        self.layout_manager.save_from_zones(
             name="pty",
             description="PTY zones",
             zone_manager=self.zone_manager,
@@ -903,12 +903,12 @@ class TestLayoutManagerSaveFromZones:
 
         loaded = self.layout_manager.load("pty-default")
         assert loaded is not None
-        # Default shell should not be saved (it's None in LayoutZone)
+        # When PTY uses default shell, shell field is omitted from YAML (loads as None)
         assert loaded.zones[0].shell is None
 
     def test_save_with_cursor_position(self):
         """Test saving layout with cursor position."""
-        path = self.layout_manager.save_from_zones(
+        self.layout_manager.save_from_zones(
             name="positioned",
             description="With cursor",
             zone_manager=self.zone_manager,
@@ -922,7 +922,7 @@ class TestLayoutManagerSaveFromZones:
 
     def test_save_with_viewport_position(self):
         """Test saving layout with viewport position."""
-        path = self.layout_manager.save_from_zones(
+        self.layout_manager.save_from_zones(
             name="viewport",
             description="With viewport",
             zone_manager=self.zone_manager,

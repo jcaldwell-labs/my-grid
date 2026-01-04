@@ -1025,7 +1025,7 @@ class TestDrawMode:
 
         # Second toggle in same frame should be blocked by spacebar handler
         initial_state = self.sm._draw_pen_down
-        result = self.sm.process(char_event(" "))
+        self.sm.process(char_event(" "))
         assert self.sm._draw_pen_down == initial_state  # Should not change
 
         # Reset guard
@@ -1243,7 +1243,7 @@ class TestCommandModeEdgeCases:
         self.sm.command_buffer.text = "origin"
         self.sm.command_buffer.cursor_pos = 6
 
-        result = self.sm.process(action_event(Action.NEWLINE))
+        self.sm.process(action_event(Action.NEWLINE))
         assert self.viewport.origin.x == 42
         assert self.viewport.origin.y == 84
 
@@ -1325,7 +1325,7 @@ class TestBookmarkCommands:
         self.sm.command_buffer.text = "mark z"
         self.sm.command_buffer.cursor_pos = 6
 
-        result = self.sm.process(action_event(Action.NEWLINE))
+        self.sm.process(action_event(Action.NEWLINE))
 
         bm = self.sm.bookmarks.get("z")
         assert bm is not None
@@ -1338,7 +1338,7 @@ class TestBookmarkCommands:
         self.sm.command_buffer.text = "mark x 100 200"
         self.sm.command_buffer.cursor_pos = 14
 
-        result = self.sm.process(action_event(Action.NEWLINE))
+        self.sm.process(action_event(Action.NEWLINE))
 
         bm = self.sm.bookmarks.get("x")
         assert bm is not None
