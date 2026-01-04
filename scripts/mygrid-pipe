@@ -1,0 +1,36 @@
+#!/bin/bash
+# mygrid-pipe - Pipe stdin to my-grid canvas
+#
+# Usage:
+#   command | mygrid-pipe [x] [y]
+#   ls -la | mygrid-pipe 0 0
+#   git log --oneline -10 | mygrid-pipe 10 5
+#
+# Environment:
+#   MYGRID_HOST - Server host (default: localhost)
+#   MYGRID_PORT - Server port (default: 8765)
+
+set -e
+
+X=${1:-0}
+Y=${2:-0}
+PORT=${MYGRID_PORT:-8765}
+HOST=${MYGRID_HOST:-localhost}
+
+# Check connection
+if ! echo ':goto 0 0' | nc -q0 "$HOST" "$PORT" >/dev/null 2>&1; then
+    echo "Error: Cannot connect to $HOST:$PORT"
+    echo "Is my-grid running with --server?"
+    exit 1
+fi
+
+# Read and send each line
+LINE_NUM=0
+while IFS= read -r line; do
+    CURRENT_Y=$((Y + LINE_NUM))
+    echo ":goto $X $CURRENT_Y" | nc -q0 "$HOST" "$PORT" >/dev/null
+    echo ":text $line" | nc -q0 "$HOST" "$PORT" >/dev/null
+    ((LINE_NUM++))
+done
+
+echo "Wrote $LINE_NUM lines at ($X, $Y)"

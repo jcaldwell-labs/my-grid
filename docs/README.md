@@ -16,6 +16,7 @@ Welcome to the my-grid documentation! This directory contains guides, tutorials,
 
 - **[Coordinates Guide](guides/coordinates-guide.md)** - Understanding the canvas coordinate system
 - **[Zones Reference](guides/zones-reference.md)** - Complete guide to zone types and commands
+- **[API Scripting Guide](guides/api-scripting.md)** - External automation with Python, Bash, and more
 - **[CLAUDE.md](../CLAUDE.md)** - Full command reference and architecture documentation
 
 ### Tutorials
@@ -53,6 +54,7 @@ Welcome to the my-grid documentation! This directory contains guides, tutorials,
 - **Monitoring dashboard** → [Dashboard Quickstart](guides/dashboard-quickstart.md)
 - **ASCII art** → [Figlet Reference](tutorials/figlet-reference.md)
 - **Live terminals** → [Zones Reference](guides/zones-reference.md#pty-zones)
+- **Scripting/Automation** → [API Scripting Guide](guides/api-scripting.md)
 - **Spatial workspace** → [Middle Grid Example](examples/middle-grid.md)
 
 ### Looking for Reference?

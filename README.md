@@ -6,7 +6,7 @@
 
 **A spatial canvas editor for your terminal.** Think vim meets infinite whiteboard, with live terminal zones and system monitoring built in.
 
-> *"Navigate to information, don't open windows."* – Inspired by Jef Raskin's *The Humane Interface*
+> _"Navigate to information, don't open windows."_ – Inspired by Jef Raskin's _The Humane Interface_
 
 ---
 
@@ -21,6 +21,7 @@ Traditional terminals are linear. my-grid gives you **infinite 2D space** where 
 - 🚀 **Navigate like vim** with bookmarks and modal editing
 
 **Perfect for:**
+
 - DevOps dashboards (disk usage, logs, git status in one spatial view)
 - System administration (live terminals + monitoring + notes)
 - ASCII art and diagramming
@@ -32,12 +33,14 @@ Traditional terminals are linear. my-grid gives you **infinite 2D space** where 
 ## 🎬 Demo
 
 <!-- TODO: Add terminal recording GIF here -->
+
 ```
 # Demo recording coming soon!
 # Run: asciinema rec demo/basic-usage.cast
 ```
 
 **Try it yourself:**
+
 ```bash
 pip install -r requirements.txt
 python mygrid.py
@@ -91,26 +94,29 @@ Hello World!
 ## 🎯 Core Features
 
 ### Infinite Canvas
+
 - **Sparse storage** – Only stores non-empty cells, unlimited space
 - **Configurable origin** – Y-up (mathematical) or Y-down (screen) coordinates
 - **Grid overlay** – Major/minor grid lines for alignment
 
 ### Vim-Style Navigation
+
 - **Modal editing** – NAV, EDIT, PAN, COMMAND, VISUAL, DRAW modes
 - **Bookmarks** – Quick jump with `m`/`'` + 36 slots (a-z, 0-9)
 - **Fast movement** – `WASD` for 10x speed
 
 ### Dynamic Zones (The Killer Feature)
 
-| Zone Type | Description | Use Case |
-|-----------|-------------|----------|
-| **PIPE** | One-shot command output | `tree`, `ls`, snapshot data |
-| **WATCH** | Auto-refreshing commands | `git status`, `df -h`, monitoring |
-| **PTY** | Live interactive terminal | Full shell, Python REPL, vim |
-| **FIFO** | Named pipe listener (Unix) | External process communication |
-| **SOCKET** | TCP port listener | Remote control, API integration |
+| Zone Type  | Description                | Use Case                          |
+| ---------- | -------------------------- | --------------------------------- |
+| **PIPE**   | One-shot command output    | `tree`, `ls`, snapshot data       |
+| **WATCH**  | Auto-refreshing commands   | `git status`, `df -h`, monitoring |
+| **PTY**    | Live interactive terminal  | Full shell, Python REPL, vim      |
+| **FIFO**   | Named pipe listener (Unix) | External process communication    |
+| **SOCKET** | TCP port listener          | Remote control, API integration   |
 
 **Example: DevOps Dashboard**
+
 ```bash
 :zone watch DISK 40 10 30s df -h
 :zone watch GIT 50 15 5s git status --short
@@ -119,11 +125,13 @@ Hello World!
 ```
 
 ### Layouts (Workspace Templates)
+
 - **Save/load** zone configurations
 - **Pre-built layouts:** `devops`, `development`, `monitoring`
 - **YAML format** – Easy to share and version control
 
 ### Visual Selection & Drawing
+
 - **Visual mode** – Select rectangular regions, yank/delete/fill
 - **Draw mode** – Trace lines with box-drawing characters
 - **Box tools** – Integrate `boxes`, `figlet` for ASCII art
@@ -134,43 +142,44 @@ Hello World!
 
 ### Navigation Mode (default)
 
-| Key | Action |
-|-----|--------|
-| `wasd` / arrows | Move cursor |
-| `WASD` | Fast move (10x) |
-| `i` | Enter edit mode |
-| `p` | Toggle pan mode |
-| `v` | Visual selection mode |
-| `D` | Draw mode |
-| `:` or `/` | Command mode |
-| `m` + key | Set bookmark (a-z, 0-9) |
-| `'` + key | Jump to bookmark |
-| `g` / `G` | Toggle grid |
-| `0` | Toggle origin marker |
-| `Esc` | Exit current mode |
+| Key             | Action                  |
+| --------------- | ----------------------- |
+| `wasd` / arrows | Move cursor             |
+| `WASD`          | Fast move (10x)         |
+| `i`             | Enter edit mode         |
+| `p`             | Toggle pan mode         |
+| `v`             | Visual selection mode   |
+| `D`             | Draw mode               |
+| `:` or `/`      | Command mode            |
+| `m` + key       | Set bookmark (a-z, 0-9) |
+| `'` + key       | Jump to bookmark        |
+| `g` / `G`       | Toggle grid             |
+| `0`             | Toggle origin marker    |
+| `Esc`           | Exit current mode       |
 
 ### Edit Mode
 
-| Key | Action |
-|-----|--------|
-| Type | Insert characters |
+| Key   | Action             |
+| ----- | ------------------ |
+| Type  | Insert characters  |
 | `Esc` | Return to NAV mode |
 
 ### Visual Mode
 
-| Key | Action |
-|-----|--------|
-| `wasd` / arrows | Extend selection |
-| `y` | Yank (copy) |
-| `d` | Delete selection |
-| `f` | Fill with character |
-| `Esc` | Cancel |
+| Key             | Action              |
+| --------------- | ------------------- |
+| `wasd` / arrows | Extend selection    |
+| `y`             | Yank (copy)         |
+| `d`             | Delete selection    |
+| `f`             | Fill with character |
+| `Esc`           | Cancel              |
 
 ---
 
 ## 📝 Essential Commands
 
 ### File Operations
+
 ```bash
 :w [file]          # Save project (default: mygrid.json)
 :q                 # Quit
@@ -180,6 +189,7 @@ Hello World!
 ```
 
 ### Drawing
+
 ```bash
 :rect W H [char]   # Draw rectangle at cursor
 :line X2 Y2 [char] # Draw line from cursor to point
@@ -189,6 +199,7 @@ Hello World!
 ```
 
 ### Zones
+
 ```bash
 :zone create NAME X Y W H              # Static zone
 :zone pipe NAME W H COMMAND            # One-shot command
@@ -201,6 +212,7 @@ Hello World!
 ```
 
 ### Layouts
+
 ```bash
 :layout list           # Show available layouts
 :layout load NAME      # Load layout
@@ -208,6 +220,7 @@ Hello World!
 ```
 
 ### Clipboard
+
 ```bash
 :yank W H              # Copy region to clipboard
 :paste                 # Paste clipboard
@@ -220,6 +233,7 @@ Hello World!
 ## 🔧 Use Cases
 
 ### 1. DevOps Monitoring Dashboard
+
 ```bash
 :layout load devops
 # Creates zones for: system logs, disk usage, processes, git status
@@ -227,6 +241,7 @@ Hello World!
 ```
 
 ### 2. Development Workspace
+
 ```bash
 :zone watch GIT 60 12 5s git status
 :zone pty VIM 80 30 vim
@@ -235,6 +250,7 @@ Hello World!
 ```
 
 ### 3. ASCII Diagramming
+
 ```bash
 :border unicode
 D  # Enter draw mode
@@ -243,6 +259,7 @@ D  # Enter draw mode
 ```
 
 ### 4. System Administration
+
 ```bash
 :zone watch LOGS 100 20 2s tail -f /var/log/syslog
 :zone watch DISK 40 10 30s df -h
@@ -253,15 +270,15 @@ D  # Enter draw mode
 
 ## 🆚 Comparison
 
-| Feature | my-grid | vim/emacs | tmux | Traditional Editor |
-|---------|---------|-----------|------|-------------------|
-| **Infinite 2D canvas** | ✅ | ❌ | ❌ | ❌ |
-| **Embedded live terminals** | ✅ (PTY zones) | ❌ | ✅ | ❌ |
-| **Spatial bookmarks** | ✅ | Limited | ❌ | ❌ |
-| **Auto-refreshing commands** | ✅ (Watch zones) | ❌ | ❌ | ❌ |
-| **Modal editing** | ✅ (Vim-style) | ✅ | ❌ | ❌ |
-| **ASCII drawing tools** | ✅ | Limited | ❌ | Limited |
-| **Workspace layouts** | ✅ (Save/load) | Limited | ✅ | ❌ |
+| Feature                      | my-grid          | vim/emacs | tmux | Traditional Editor |
+| ---------------------------- | ---------------- | --------- | ---- | ------------------ |
+| **Infinite 2D canvas**       | ✅               | ❌        | ❌   | ❌                 |
+| **Embedded live terminals**  | ✅ (PTY zones)   | ❌        | ✅   | ❌                 |
+| **Spatial bookmarks**        | ✅               | Limited   | ❌   | ❌                 |
+| **Auto-refreshing commands** | ✅ (Watch zones) | ❌        | ❌   | ❌                 |
+| **Modal editing**            | ✅ (Vim-style)   | ✅        | ❌   | ❌                 |
+| **ASCII drawing tools**      | ✅               | Limited   | ❌   | Limited            |
+| **Workspace layouts**        | ✅ (Save/load)   | Limited   | ✅   | ❌                 |
 
 **my-grid = tmux + vim + infinite whiteboard + system monitoring**
 
@@ -278,6 +295,7 @@ User Input → Renderer → InputEvent → ModeStateMachine → Application
 ```
 
 **Key components:**
+
 - `canvas.py` – Sparse dict storage, drawing primitives
 - `viewport.py` – Coordinate transforms, cursor management
 - `renderer.py` – Curses rendering, colors, grid overlay
@@ -306,6 +324,29 @@ ls -la | python mygrid-ctl box 0 0 80 25
 ```
 
 **Cross-platform:** Works from Windows → WSL via TCP sockets.
+
+### Scripting & Automation
+
+Automate my-grid with Python, Bash, or any language:
+
+```python
+from scripts.mygrid_client import MyGridClient
+
+client = MyGridClient()
+client.goto(0, 0)
+client.text('Automated dashboard')
+client.zone_watch('STATUS', 60, 15, '10s', 'uptime')
+```
+
+```bash
+# Pipe any command output to canvas
+ls -la | ./scripts/mygrid-pipe 0 0
+
+# Batch commands from file
+./scripts/batch_commands.py setup.txt
+```
+
+See **[API Scripting Guide](docs/guides/api-scripting.md)** for full documentation.
 
 ### PTY Zones with Scrollback (NEW!)
 
@@ -336,6 +377,7 @@ See [CLAUDE.md](CLAUDE.md) for full integration patterns.
 ## 📚 Documentation
 
 - **[Documentation Hub](docs/README.md)** – Guides, tutorials, and examples
+- **[API Scripting Guide](docs/guides/api-scripting.md)** – External automation with Python/Bash
 - **[CLAUDE.md](CLAUDE.md)** – Complete command reference, architecture, API docs
 - **[Getting Started](docs/guides/getting-started.md)** – First steps with my-grid
 - **[Zones Reference](docs/guides/zones-reference.md)** – Complete guide to zone types
@@ -368,6 +410,7 @@ python -m pytest tests/test_canvas.py -v
 ```
 
 **Ideas for contribution:**
+
 - 🎨 New border styles or color schemes
 - 🔌 Integration with external tools
 - 📦 Pre-built layouts for specific workflows
@@ -395,7 +438,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-- Inspired by **Jef Raskin's** *The Humane Interface* (spatial navigation philosophy)
+- Inspired by **Jef Raskin's** _The Humane Interface_ (spatial navigation philosophy)
 - Built with **curses** (terminal rendering)
 - Vim-style modal editing concepts
 
