@@ -26,45 +26,57 @@ class TestCommandInjectionPrevention:
         """Verify external.py figlet uses list-based subprocess calls."""
         from src.external import draw_figlet
 
-        # Mock subprocess to capture call arguments
-        with patch("src.external.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="test", stderr="")
+        # Mock both tool_available (to bypass the check) and subprocess.run
+        with patch("src.external.tool_available", return_value=True):
+            with patch("src.external.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout="test", stderr=""
+                )
 
-            # Malicious input that would exploit shell=True
-            draw_figlet("; echo INJECTED", "standard")
+                # Malicious input that would exploit shell=True
+                draw_figlet("; echo INJECTED", "standard")
 
-            # Verify it was called with list form (not shell=True with string)
-            call_args = mock_run.call_args
-            assert call_args is not None, "subprocess.run should be called"
+                # Verify it was called with list form (not shell=True with string)
+                call_args = mock_run.call_args
+                assert call_args is not None, "subprocess.run should be called"
 
-            # The first argument should be a list, not a string
-            args, kwargs = call_args
-            cmd_arg = args[0] if args else kwargs.get("cmd")
+                # The first argument should be a list, not a string
+                args, kwargs = call_args
+                cmd_arg = args[0] if args else kwargs.get("cmd")
 
-            # Should be list form for safe execution
-            assert isinstance(
-                cmd_arg, list
-            ), f"Command should be list, got {type(cmd_arg)}: {cmd_arg}"
-            # shell=True should not be present or should be False
-            assert not kwargs.get("shell", False), "shell=True should not be used"
+                # Should be list form for safe execution
+                assert isinstance(
+                    cmd_arg, list
+                ), f"Command should be list, got {type(cmd_arg)}: {cmd_arg}"
+                # shell=True should not be present or should be False
+                assert not kwargs.get("shell", False), "shell=True should not be used"
 
     def test_external_boxes_uses_list_form(self):
         """Verify external.py boxes uses list-based subprocess calls."""
         from src.external import draw_box
 
-        with patch("src.external.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="test", stderr="")
+        # Mock both tool_available (to bypass the check) and subprocess.run
+        with patch("src.external.tool_available", return_value=True):
+            with patch("src.external.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout="test", stderr=""
+                )
 
-            # Malicious input
-            draw_box("test; rm -rf /", "ansi")
+                # Malicious input
+                draw_box("test; rm -rf /", "ansi")
 
-            call_args = mock_run.call_args
-            if call_args:  # Only if subprocess.run was called
+                call_args = mock_run.call_args
+                assert call_args is not None, "subprocess.run should be called"
+
                 args, kwargs = call_args
                 cmd_arg = args[0] if args else kwargs.get("cmd")
-                if isinstance(cmd_arg, list):
-                    assert not kwargs.get("shell", False)
-                # Input is passed safely, not as part of command
+
+                # Should be list form for safe execution
+                assert isinstance(
+                    cmd_arg, list
+                ), f"Command should be list, got {type(cmd_arg)}: {cmd_arg}"
+                # shell=True should not be present or should be False
+                assert not kwargs.get("shell", False), "shell=True should not be used"
 
     def test_pipe_command_documents_shell_risk(self):
         """Verify pipe_command is marked as intentionally using shell."""
