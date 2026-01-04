@@ -1,0 +1,37 @@
+#!/bin/bash
+# mygrid-send - Send command to my-grid API server
+#
+# Usage:
+#   mygrid-send '<command>'
+#   mygrid-send ':text Hello World'
+#   mygrid-send ':goto 10 20'
+#
+# Environment:
+#   MYGRID_HOST - Server host (default: localhost)
+#   MYGRID_PORT - Server port (default: 8765)
+
+set -e
+
+PORT=${MYGRID_PORT:-8765}
+HOST=${MYGRID_HOST:-localhost}
+
+if [ -z "$1" ]; then
+    echo "Usage: mygrid-send '<command>'"
+    echo ""
+    echo "Examples:"
+    echo "  mygrid-send ':text Hello'"
+    echo "  mygrid-send ':goto 10 20'"
+    echo "  mygrid-send ':rect 20 10'"
+    echo ""
+    echo "Environment:"
+    echo "  MYGRID_HOST=$HOST"
+    echo "  MYGRID_PORT=$PORT"
+    exit 1
+fi
+
+# Send command via netcat
+echo "$1" | nc -q0 "$HOST" "$PORT" 2>/dev/null || {
+    echo "Error: Cannot connect to $HOST:$PORT"
+    echo "Is my-grid running with --server?"
+    exit 1
+}

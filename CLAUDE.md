@@ -79,16 +79,16 @@ Renderer.render(canvas, viewport, status) → Terminal Display
 
 ## Modes
 
-| Mode | Entry | Keys | Behavior |
-|------|-------|------|----------|
-| NAV | default | wasd/arrows | Move cursor |
-| PAN | `p` | wasd/arrows | Pan viewport, cursor follows |
-| EDIT | `i` | typing | Draw characters on canvas |
-| COMMAND | `:` | typing | Execute commands |
-| MARK_SET | `m` | a-z, 0-9 | Set bookmark at cursor |
-| MARK_JUMP | `'` | a-z, 0-9 | Jump to bookmark |
-| VISUAL | `v` | wasd/arrows | Visual selection mode |
-| DRAW | `D` | wasd/arrows | Line drawing mode |
+| Mode      | Entry   | Keys        | Behavior                     |
+| --------- | ------- | ----------- | ---------------------------- |
+| NAV       | default | wasd/arrows | Move cursor                  |
+| PAN       | `p`     | wasd/arrows | Pan viewport, cursor follows |
+| EDIT      | `i`     | typing      | Draw characters on canvas    |
+| COMMAND   | `:`     | typing      | Execute commands             |
+| MARK_SET  | `m`     | a-z, 0-9    | Set bookmark at cursor       |
+| MARK_JUMP | `'`     | a-z, 0-9    | Jump to bookmark             |
+| VISUAL    | `v`     | wasd/arrows | Visual selection mode        |
+| DRAW      | `D`     | wasd/arrows | Line drawing mode            |
 
 Exit any mode with `Esc`.
 
@@ -101,13 +101,13 @@ Visual selection mode allows selecting a rectangular region on the canvas for bu
 **Enter**: Press `v` in NAV mode
 **Exit**: Press `Esc`
 
-| Key | Action |
-|-----|--------|
-| `wasd` / arrows | Extend/shrink selection |
-| `y` | Yank (copy) selection to clipboard |
-| `d` | Delete selection (clear cells) |
-| `f` | Fill selection with character (opens command) |
-| `Esc` | Cancel selection |
+| Key             | Action                                        |
+| --------------- | --------------------------------------------- |
+| `wasd` / arrows | Extend/shrink selection                       |
+| `y`             | Yank (copy) selection to clipboard            |
+| `d`             | Delete selection (clear cells)                |
+| `f`             | Fill selection with character (opens command) |
+| `Esc`           | Cancel selection                              |
 
 The selection is highlighted in cyan. The cursor shows one corner, the anchor is at the starting position.
 
@@ -120,28 +120,32 @@ Draw mode allows tracing lines with box-drawing characters using cursor movement
 **Enter**: Press `D` in NAV mode or use `:draw` command
 **Exit**: Press `Esc`
 
-| Key | Action |
-|-----|--------|
+| Key             | Action                                             |
+| --------------- | -------------------------------------------------- |
 | `wasd` / arrows | Draw line in direction (pen down) or move (pen up) |
-| `Space` | Toggle pen up/down |
-| `Esc` | Exit draw mode |
+| `Space`         | Toggle pen up/down                                 |
+| `Esc`           | Exit draw mode                                     |
 
 **Pen States**:
+
 - **Pen DOWN**: Movement draws lines
 - **Pen UP**: Movement just moves cursor without drawing
 
 **Joystick Support**:
+
 - D-pad/stick: Move and draw
 - Button A: Toggle pen up/down
 - Button B: Exit draw mode
 
 **Features**:
+
 - Uses current border style (`:border ascii/unicode/rounded/double/heavy`)
 - Auto-detects corners when changing direction
 - Smart junctions when lines cross (┼) or meet (├ ┤ ┬ ┴)
 - Uses current drawing colors (`:color`)
 
 **Example**:
+
 ```
 :border unicode    # Set line style
 D                  # Enter draw mode (pen down)
@@ -183,37 +187,37 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 
 ### Zone Types
 
-| Type | Description | Command |
-|------|-------------|---------|
-| STATIC | Plain text region (default) | `:zone create NAME X Y W H` |
-| PIPE | One-shot command output | `:zone pipe NAME W H CMD` |
-| WATCH | Periodic refresh command | `:zone watch NAME W H INTERVAL CMD` |
-| PTY | Live terminal session (Unix) | `:zone pty NAME W H [SHELL]` |
-| PAGER | Paginated file viewer with colors | `:zone pager NAME W H FILE` |
-| FIFO | Named pipe listener (Unix) | `:zone fifo NAME W H PATH` |
-| SOCKET | TCP port listener | `:zone socket NAME W H PORT` |
-| CLIPBOARD | Yank/paste buffer | `:clipboard zone` |
+| Type      | Description                       | Command                             |
+| --------- | --------------------------------- | ----------------------------------- |
+| STATIC    | Plain text region (default)       | `:zone create NAME X Y W H`         |
+| PIPE      | One-shot command output           | `:zone pipe NAME W H CMD`           |
+| WATCH     | Periodic refresh command          | `:zone watch NAME W H INTERVAL CMD` |
+| PTY       | Live terminal session (Unix)      | `:zone pty NAME W H [SHELL]`        |
+| PAGER     | Paginated file viewer with colors | `:zone pager NAME W H FILE`         |
+| FIFO      | Named pipe listener (Unix)        | `:zone fifo NAME W H PATH`          |
+| SOCKET    | TCP port listener                 | `:zone socket NAME W H PORT`        |
+| CLIPBOARD | Yank/paste buffer                 | `:clipboard zone`                   |
 
 ### Zone Commands
 
-| Command | Description |
-|---------|-------------|
-| `:zone create NAME X Y W H` | Create static zone at coordinates |
-| `:zone create NAME here W H` | Create zone at cursor position |
-| `:zone pipe NAME W H CMD` | Create pipe zone, execute command once |
-| `:zone watch NAME W H 5s CMD` | Create watch zone, refresh every 5 seconds |
-| `:zone pty NAME W H [SHELL]` | Create PTY zone with live terminal (Unix) |
-| `:zone fifo NAME W H PATH` | Create FIFO zone listening on named pipe (Unix) |
-| `:zone socket NAME W H PORT` | Create socket zone listening on TCP port |
-| `:zone delete NAME` | Delete zone |
-| `:zone goto NAME` | Jump cursor to zone center |
-| `:zone info [NAME]` | Show zone info |
-| `:zone refresh NAME` | Manually refresh pipe/watch zone |
-| `:zone pause NAME` | Pause watch zone refresh |
-| `:zone resume NAME` | Resume watch zone refresh |
-| `:zone send NAME TEXT` | Send text to PTY zone |
-| `:zone focus NAME` | Focus PTY zone for keyboard input |
-| `:zones` | List all zones |
+| Command                       | Description                                     |
+| ----------------------------- | ----------------------------------------------- |
+| `:zone create NAME X Y W H`   | Create static zone at coordinates               |
+| `:zone create NAME here W H`  | Create zone at cursor position                  |
+| `:zone pipe NAME W H CMD`     | Create pipe zone, execute command once          |
+| `:zone watch NAME W H 5s CMD` | Create watch zone, refresh every 5 seconds      |
+| `:zone pty NAME W H [SHELL]`  | Create PTY zone with live terminal (Unix)       |
+| `:zone fifo NAME W H PATH`    | Create FIFO zone listening on named pipe (Unix) |
+| `:zone socket NAME W H PORT`  | Create socket zone listening on TCP port        |
+| `:zone delete NAME`           | Delete zone                                     |
+| `:zone goto NAME`             | Jump cursor to zone center                      |
+| `:zone info [NAME]`           | Show zone info                                  |
+| `:zone refresh NAME`          | Manually refresh pipe/watch zone                |
+| `:zone pause NAME`            | Pause watch zone refresh                        |
+| `:zone resume NAME`           | Resume watch zone refresh                       |
+| `:zone send NAME TEXT`        | Send text to PTY zone                           |
+| `:zone focus NAME`            | Focus PTY zone for keyboard input               |
+| `:zones`                      | List all zones                                  |
 
 ### Examples
 
@@ -255,6 +259,7 @@ Zones display with borders showing type indicator: `[P]` for pipe, `[W]` for wat
 PTY zones provide live interactive terminals with full echo, ANSI color support, and scrollback:
 
 **Basic Usage:**
+
 1. Create PTY zone: `:zone pty TERM 80 24`
 2. Navigate cursor into the zone
 3. Press **Enter** to focus (or use `:zone focus TERM`)
@@ -263,6 +268,7 @@ PTY zones provide live interactive terminals with full echo, ANSI color support,
 6. Press **Escape** to unfocus and return to canvas navigation
 
 **Terminal Emulation:**
+
 - Full VT100/ANSI terminal emulation via `pyte`
 - ANSI color support (foreground/background, 256-color palette mapped to 8 colors)
 - Cursor control, backspace, escape sequences all work
@@ -272,30 +278,34 @@ PTY zones provide live interactive terminals with full echo, ANSI color support,
 
 When focused on a PTY zone, you can scroll through terminal history:
 
-| Key | Action |
-|-----|--------|
+| Key    | Action                                   |
+| ------ | ---------------------------------------- |
 | `PgUp` | Scroll up half page (enters scroll mode) |
-| `PgDn` | Scroll down half page |
-| `Home` | Go to top of history |
-| `End` | Go to bottom (re-enables auto-scroll) |
-| `Esc` | Unfocus PTY |
+| `PgDn` | Scroll down half page                    |
+| `Home` | Go to top of history                     |
+| `End`  | Go to bottom (re-enables auto-scroll)    |
+| `Esc`  | Unfocus PTY                              |
 
 **Scroll Modes:**
+
 - **Auto-scroll** (default): Always shows latest output, scrolls automatically
 - **Manual scroll**: PgUp enters this mode, shows scroll position in status line
 - Press `End` to return to auto-scroll
 
 **Status Line:**
+
 - Auto-scroll mode: `[PTY] TERM - PgUp:scroll Esc:unfocus`
 - Scroll mode: `[PTY SCROLL] TERM - 50/200 - End:auto Esc:unfocus`
 
 **Color Support:**
+
 - ANSI colors display correctly (foreground and background)
 - 256-color palette supported (mapped to basic 8 colors)
 - Colors preserved on current screen
 - Note: Scrollback history (from `pyte` limitations) shows plain text without colors
 
 **Use Cases:**
+
 - Review command output that scrolled past
 - Copy error messages from history
 - Navigate through log files
@@ -312,27 +322,27 @@ Set drawing colors for text and regions. Colors persist until changed.
 
 ### Color Commands
 
-| Command | Description |
-|---------|-------------|
-| `:color FG [BG]` | Set drawing color (foreground, optional background) |
-| `:color off` | Reset to default (terminal) colors |
-| `:color apply W H` | Apply current color to region at cursor |
-| `:palette` | Show available color names |
-| `:color` | Show current color setting |
+| Command            | Description                                         |
+| ------------------ | --------------------------------------------------- |
+| `:color FG [BG]`   | Set drawing color (foreground, optional background) |
+| `:color off`       | Reset to default (terminal) colors                  |
+| `:color apply W H` | Apply current color to region at cursor             |
+| `:palette`         | Show available color names                          |
+| `:color`           | Show current color setting                          |
 
 ### Available Colors
 
-| Name | Value | Description |
-|------|-------|-------------|
-| `black` | 0 | Black |
-| `red` | 1 | Red |
-| `green` | 2 | Green |
-| `yellow` | 3 | Yellow |
-| `blue` | 4 | Blue |
-| `magenta` | 5 | Magenta |
-| `cyan` | 6 | Cyan |
-| `white` | 7 | White |
-| `default` | -1 | Terminal default |
+| Name      | Value | Description      |
+| --------- | ----- | ---------------- |
+| `black`   | 0     | Black            |
+| `red`     | 1     | Red              |
+| `green`   | 2     | Green            |
+| `yellow`  | 3     | Yellow           |
+| `blue`    | 4     | Blue             |
+| `magenta` | 5     | Magenta          |
+| `cyan`    | 6     | Cyan             |
+| `white`   | 7     | White            |
+| `default` | -1    | Terminal default |
 
 ### Examples
 
@@ -364,14 +374,14 @@ Layouts save and restore zone configurations. Stored in `~/.config/mygrid/layout
 
 ### Layout Commands
 
-| Command | Description |
-|---------|-------------|
-| `:layout list` | List available layouts |
-| `:layout load NAME` | Load a layout (creates zones) |
+| Command                     | Description                                |
+| --------------------------- | ------------------------------------------ |
+| `:layout list`              | List available layouts                     |
+| `:layout load NAME`         | Load a layout (creates zones)              |
 | `:layout load NAME --clear` | Load layout, clearing existing zones first |
-| `:layout save NAME [DESC]` | Save current zones as layout |
-| `:layout delete NAME` | Delete a layout |
-| `:layout info NAME` | Show layout details |
+| `:layout save NAME [DESC]`  | Save current zones as layout               |
+| `:layout delete NAME`       | Delete a layout                            |
+| `:layout info NAME`         | Show layout details                        |
 
 ### Default Layouts
 
@@ -413,62 +423,62 @@ zones:
 
 ## Commands
 
-| Command | Aliases | Description |
-|---------|---------|-------------|
-| `quit` | `q` | Exit editor |
-| `write` | `w` | Save project |
-| `wq` | - | Save and quit |
-| `goto X Y` | `g` | Move cursor to coordinates |
-| `origin [X Y\|here]` | - | Set canvas origin |
-| `clear` | - | Clear entire canvas |
-| `rect W H [char]` | - | Draw rectangle at cursor |
-| `line X2 Y2 [char]` | - | Draw line from cursor |
-| `text MESSAGE` | - | Write text at cursor |
-| `grid major\|minor\|N` | - | Toggle/configure grid |
-| `ydir up\|down` | - | Set Y-axis direction |
-| `export [file]` | - | Export as plain text |
-| `import file` | - | Import text file |
-| `marks` | - | List all bookmarks |
-| `mark KEY [X Y]` | - | Set bookmark |
-| `delmark KEY` | - | Delete bookmark |
-| `delmarks` | - | Delete all bookmarks |
-| `zone SUBCMD` | - | Zone management (see Zones section) |
-| `zones` | - | List all zones |
-| `layout SUBCMD` | - | Layout management (see Layouts section) |
-| `yank W H` | `y` | Yank region at cursor to clipboard |
-| `yank zone NAME` | - | Yank zone content to clipboard |
-| `yank system` | - | Read from system clipboard |
-| `paste` | `p` | Paste clipboard at cursor |
-| `paste system` | - | Copy clipboard to system clipboard |
-| `clipboard` | - | Show clipboard info |
-| `clipboard clear` | - | Clear clipboard |
-| `clipboard zone` | - | Create clipboard zone |
-| `box [STYLE] TEXT` | - | Draw ASCII box (requires `boxes`) |
-| `figlet [-f FONT] TEXT` | - | Draw ASCII art text (requires `figlet`) |
-| `pipe COMMAND` | - | Execute command, write output at cursor |
-| `tools` | - | Show external tool status |
+| Command                 | Aliases | Description                             |
+| ----------------------- | ------- | --------------------------------------- |
+| `quit`                  | `q`     | Exit editor                             |
+| `write`                 | `w`     | Save project                            |
+| `wq`                    | -       | Save and quit                           |
+| `goto X Y`              | `g`     | Move cursor to coordinates              |
+| `origin [X Y\|here]`    | -       | Set canvas origin                       |
+| `clear`                 | -       | Clear entire canvas                     |
+| `rect W H [char]`       | -       | Draw rectangle at cursor                |
+| `line X2 Y2 [char]`     | -       | Draw line from cursor                   |
+| `text MESSAGE`          | -       | Write text at cursor                    |
+| `grid major\|minor\|N`  | -       | Toggle/configure grid                   |
+| `ydir up\|down`         | -       | Set Y-axis direction                    |
+| `export [file]`         | -       | Export as plain text                    |
+| `import file`           | -       | Import text file                        |
+| `marks`                 | -       | List all bookmarks                      |
+| `mark KEY [X Y]`        | -       | Set bookmark                            |
+| `delmark KEY`           | -       | Delete bookmark                         |
+| `delmarks`              | -       | Delete all bookmarks                    |
+| `zone SUBCMD`           | -       | Zone management (see Zones section)     |
+| `zones`                 | -       | List all zones                          |
+| `layout SUBCMD`         | -       | Layout management (see Layouts section) |
+| `yank W H`              | `y`     | Yank region at cursor to clipboard      |
+| `yank zone NAME`        | -       | Yank zone content to clipboard          |
+| `yank system`           | -       | Read from system clipboard              |
+| `paste`                 | `p`     | Paste clipboard at cursor               |
+| `paste system`          | -       | Copy clipboard to system clipboard      |
+| `clipboard`             | -       | Show clipboard info                     |
+| `clipboard clear`       | -       | Clear clipboard                         |
+| `clipboard zone`        | -       | Create clipboard zone                   |
+| `box [STYLE] TEXT`      | -       | Draw ASCII box (requires `boxes`)       |
+| `figlet [-f FONT] TEXT` | -       | Draw ASCII art text (requires `figlet`) |
+| `pipe COMMAND`          | -       | Execute command, write output at cursor |
+| `tools`                 | -       | Show external tool status               |
 
 ---
 
 ## Key Bindings
 
-| Key | Action |
-|-----|--------|
-| `wasd` / arrows | Move cursor |
-| `WASD` | Fast move (10x) |
-| `i` | Enter edit mode |
-| `p` | Toggle pan mode |
-| `:` or `/` | Enter command mode |
-| `m` + key | Set bookmark (a-z, 0-9) |
-| `'` + key | Jump to bookmark |
-| `Esc` | Exit current mode |
-| `g` / `G` | Toggle major/minor grid |
-| `0` | Toggle origin marker |
-| `Ctrl+S` | Save |
-| `Ctrl+O` | Open |
-| `Ctrl+N` | New |
-| `q` | Quit |
-| `F1` | Help |
+| Key             | Action                  |
+| --------------- | ----------------------- |
+| `wasd` / arrows | Move cursor             |
+| `WASD`          | Fast move (10x)         |
+| `i`             | Enter edit mode         |
+| `p`             | Toggle pan mode         |
+| `:` or `/`      | Enter command mode      |
+| `m` + key       | Set bookmark (a-z, 0-9) |
+| `'` + key       | Jump to bookmark        |
+| `Esc`           | Exit current mode       |
+| `g` / `G`       | Toggle major/minor grid |
+| `0`             | Toggle origin marker    |
+| `Ctrl+S`        | Save                    |
+| `Ctrl+O`        | Open                    |
+| `Ctrl+N`        | New                     |
+| `q`             | Quit                    |
+| `F1`            | Help                    |
 
 ---
 
@@ -593,6 +603,40 @@ $writer.WriteLine(":text Hello from Windows")
 $writer.Flush()
 ```
 
+### Python Client Library
+
+Use the included Python client for scripting:
+
+```python
+from scripts.mygrid_client import MyGridClient
+
+client = MyGridClient()
+client.goto(0, 0)
+client.text('Hello from Python!')
+client.rect(20, 10)
+client.zone_watch('STATUS', 60, 15, '10s', 'uptime')
+client.save('dashboard.json')
+```
+
+### Bash Helpers
+
+```bash
+# Send single command
+./scripts/mygrid-send ':text Hello'
+
+# Pipe command output to canvas
+ls -la | ./scripts/mygrid-pipe 0 0
+
+# Execute batch commands
+./scripts/batch_commands.py commands.txt
+```
+
+### Additional Resources
+
+- **[API Scripting Guide](docs/guides/api-scripting.md)** - Full documentation with patterns
+- **[scripts/](scripts/)** - Ready-to-use Python and Bash scripts
+- **[examples/music-organization/](examples/music-organization/)** - Real-world automation example
+
 ---
 
 ## Claude Code Integration
@@ -685,6 +729,7 @@ Load with: `:layout load claude-code`
 Run Claude Code directly inside a my-grid PTY zone for the ultimate meta-development experience:
 
 **Setup:**
+
 ```bash
 # Start my-grid with server mode
 python3 mygrid.py --server --layout pty-test
@@ -697,6 +742,7 @@ claude
 ```
 
 **What You Get:**
+
 - Claude Code's full TUI running inside my-grid
 - Full color support for Claude's interface
 - Scrollback through Claude's responses (PgUp/PgDn)
@@ -704,12 +750,14 @@ claude
 - README/docs visible alongside Claude
 
 **Use Cases:**
+
 - Ask Claude to help develop my-grid itself (meta!)
 - View documentation while chatting with Claude
 - Multiple Claude contexts in different zones
 - Compare responses from different Claude sessions side-by-side
 
 **Tips:**
+
 - Use `Esc` to unfocus PTY and navigate my-grid
 - Press `'c` to quickly jump back to Claude zone
 - Scrollback works - review Claude's previous responses with `PgUp`
@@ -717,6 +765,7 @@ claude
 - Run bash commands in a separate PTY zone while Claude is running
 
 **Meta-Development Workflow:**
+
 ```
 ┌──────────────┬──────────────┐
 │   README     │  BASH shell  │
