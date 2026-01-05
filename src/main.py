@@ -2047,38 +2047,65 @@ class Application:
             except ValueError as e:
                 return ModeResult(message=str(e))
 
-        # :zone watch NAME W H INTERVAL CMD
+        # :zone watch NAME W H (INTERVAL|watch:PATH) CMD
         elif subcmd == "watch":
             if len(args) < 6:
-                return ModeResult(message="Usage: zone watch NAME W H INTERVAL COMMAND")
+                return ModeResult(
+                    message="Usage: zone watch NAME W H (INTERVAL|watch:PATH) COMMAND"
+                )
             name = args[1]
             try:
                 w, h = int(args[2]), int(args[3])
-                # Parse interval (e.g., "5s", "10", "1m")
-                interval_str = args[4]
-                if interval_str.endswith("s"):
-                    interval = float(interval_str[:-1])
-                elif interval_str.endswith("m"):
-                    interval = float(interval_str[:-1]) * 60
-                else:
-                    interval = float(interval_str)
+                watch_spec = args[4]
                 cmd = " ".join(args[5:])
-            except (ValueError, IndexError):
-                return ModeResult(message="Invalid width/height/interval")
 
-            x = self.viewport.cursor.x
-            y = self.viewport.cursor.y
+                # Detect file-watch vs interval mode
+                if watch_spec.startswith("watch:"):
+                    # File-watching mode
+                    watch_path = watch_spec[6:]  # Remove "watch:" prefix
+                    if not watch_path:
+                        return ModeResult(message="Missing file path after 'watch:'")
 
-            try:
-                zone = self.zone_manager.create_watch(name, x, y, w, h, cmd, interval)
-                # Start background refresh
-                self.zone_executor.start_watch(zone)
-                self.project.mark_dirty()
-                return ModeResult(
-                    message=f"Created watch zone '{name}' (refresh: {interval}s)"
-                )
-            except ValueError as e:
-                return ModeResult(message=str(e))
+                    # Expand ~ and resolve relative paths
+                    import os
+
+                    watch_path = os.path.expanduser(watch_path)
+                    if not os.path.isabs(watch_path):
+                        watch_path = os.path.abspath(watch_path)
+
+                    x = self.viewport.cursor.x
+                    y = self.viewport.cursor.y
+
+                    zone = self.zone_manager.create_watch_file(
+                        name, x, y, w, h, cmd, watch_path
+                    )
+                    self.zone_executor.start_watch(zone)
+                    self.project.mark_dirty()
+                    return ModeResult(
+                        message=f"Created watch zone '{name}' (watching: {watch_path})"
+                    )
+                else:
+                    # Interval-based mode (existing behavior)
+                    if watch_spec.endswith("s"):
+                        interval = float(watch_spec[:-1])
+                    elif watch_spec.endswith("m"):
+                        interval = float(watch_spec[:-1]) * 60
+                    else:
+                        interval = float(watch_spec)
+
+                    x = self.viewport.cursor.x
+                    y = self.viewport.cursor.y
+
+                    zone = self.zone_manager.create_watch(
+                        name, x, y, w, h, cmd, interval
+                    )
+                    self.zone_executor.start_watch(zone)
+                    self.project.mark_dirty()
+                    return ModeResult(
+                        message=f"Created watch zone '{name}' (refresh: {interval}s)"
+                    )
+            except (ValueError, IndexError) as e:
+                return ModeResult(message=f"Invalid arguments: {e}")
 
         # :zone refresh NAME
         elif subcmd == "refresh":

@@ -1575,5 +1575,231 @@ class TestZoneSerializationWithConfig:
         assert zone.config.scroll_offset == 10
 
 
+class TestFileWatcher:
+    """Test FileWatcher class for event-driven file monitoring."""
+
+    def test_create_watcher(self, tmp_path):
+        """Test basic FileWatcher creation."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("initial")
+
+        callback_count = [0]
+
+        def callback():
+            callback_count[0] += 1
+
+        from src.zones import FileWatcher
+
+        watcher = FileWatcher(str(test_file), callback, debounce=0.1)
+        assert watcher.path == str(test_file)
+        assert not watcher.is_running
+
+    def test_start_stop(self, tmp_path):
+        """Test starting and stopping watcher."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("initial")
+
+        from src.zones import FileWatcher
+
+        watcher = FileWatcher(str(test_file), lambda: None, debounce=0.1)
+
+        watcher.start()
+        assert watcher.is_running
+
+        watcher.stop()
+        assert not watcher.is_running
+
+    def test_polling_detects_changes(self, tmp_path):
+        """Test that polling detects file changes."""
+        import time
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("initial")
+
+        callback_count = [0]
+
+        def callback():
+            callback_count[0] += 1
+
+        from src.zones import FileWatcher
+
+        watcher = FileWatcher(str(test_file), callback, debounce=0.1, poll_interval=0.2)
+        watcher.start()
+
+        try:
+            # Give watcher time to start
+            time.sleep(0.3)
+
+            # Modify the file
+            test_file.write_text("modified")
+
+            # Wait for polling to detect change
+            time.sleep(0.5)
+
+            # Should have been called at least once
+            assert callback_count[0] >= 1
+        finally:
+            watcher.stop()
+
+    def test_debounce_rapid_changes(self, tmp_path):
+        """Test that rapid changes are debounced."""
+        import time
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("initial")
+
+        callback_count = [0]
+
+        def callback():
+            callback_count[0] += 1
+
+        from src.zones import FileWatcher
+
+        # Long debounce to test debouncing
+        watcher = FileWatcher(str(test_file), callback, debounce=1.0, poll_interval=0.1)
+        watcher.start()
+
+        try:
+            time.sleep(0.2)
+
+            # Rapid changes
+            for i in range(5):
+                test_file.write_text(f"change {i}")
+                time.sleep(0.1)
+
+            # Even with 5 rapid changes, debounce should limit callbacks
+            # Due to 1.0s debounce, we should have at most 2 calls
+            time.sleep(0.3)
+            assert callback_count[0] <= 2
+        finally:
+            watcher.stop()
+
+    def test_file_not_exists(self, tmp_path):
+        """Test handling of non-existent file."""
+        nonexistent = tmp_path / "nonexistent.txt"
+
+        from src.zones import FileWatcher
+
+        watcher = FileWatcher(str(nonexistent), lambda: None)
+        # Should not raise
+        watcher.start()
+        watcher.stop()
+
+
+class TestZoneExecutorFileWatch:
+    """Test ZoneExecutor file-watching integration."""
+
+    def test_create_watch_file_zone(self, tmp_path):
+        """Test creating a file-watching zone."""
+        from src.zones import ZoneManager, ZoneType
+
+        manager = ZoneManager()
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+
+        zone = manager.create_watch_file(
+            "TEST", 0, 0, 40, 10, "cat {file}", str(test_file)
+        )
+
+        assert zone.zone_type == ZoneType.WATCH
+        assert zone.config.watch_path == str(test_file)
+        assert zone.config.command == "cat {file}"
+        assert zone.config.watch_debounce == 0.5
+
+    def test_zone_config_watch_path_serialization(self, tmp_path):
+        """Test that watch_path is serialized and deserialized correctly."""
+        from src.zones import ZoneConfig, ZoneType
+
+        config = ZoneConfig(
+            zone_type=ZoneType.WATCH,
+            command="cat {file}",
+            watch_path="/path/to/file.txt",
+            watch_debounce=1.0,
+        )
+
+        # Serialize
+        d = config.to_dict()
+        assert d["watch_path"] == "/path/to/file.txt"
+        assert d["watch_debounce"] == 1.0
+
+        # Deserialize
+        restored = ZoneConfig.from_dict(d)
+        assert restored.watch_path == "/path/to/file.txt"
+        assert restored.watch_debounce == 1.0
+
+    def test_execute_with_template(self, tmp_path):
+        """Test template substitution in execute_with_template."""
+        from src.zones import ZoneManager, ZoneExecutor
+
+        manager = ZoneManager()
+        executor = ZoneExecutor(manager)
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("Hello World")
+
+        zone = manager.create_watch_file(
+            "TEST", 0, 0, 40, 10, "cat {file}", str(test_file)
+        )
+
+        # Execute with template
+        result = executor.execute_with_template(zone)
+        assert result is True
+        assert "Hello World" in zone.content_lines[0]
+
+    def test_start_file_watch(self, tmp_path):
+        """Test starting a file-watching zone."""
+        import time
+
+        from src.zones import ZoneManager, ZoneExecutor
+
+        manager = ZoneManager()
+        executor = ZoneExecutor(manager)
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("initial")
+
+        zone = manager.create_watch_file(
+            "TEST", 0, 0, 40, 10, "cat {file}", str(test_file)
+        )
+
+        try:
+            executor.start_watch(zone)
+
+            # Check initial content was loaded
+            time.sleep(0.2)
+            assert "initial" in zone.content_lines[0]
+
+        finally:
+            executor.stop_all()
+
+    def test_pause_resume_file_watch(self, tmp_path):
+        """Test pause/resume works for file-watching zones."""
+        from src.zones import ZoneManager, ZoneExecutor
+
+        manager = ZoneManager()
+        executor = ZoneExecutor(manager)
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+
+        zone = manager.create_watch_file(
+            "TEST", 0, 0, 40, 10, "cat {file}", str(test_file)
+        )
+
+        try:
+            executor.start_watch(zone)
+
+            # Pause
+            assert executor.pause_zone("TEST") is True
+            assert zone.config.paused is True
+
+            # Resume
+            assert executor.resume_zone("TEST") is True
+            assert zone.config.paused is False
+
+        finally:
+            executor.stop_all()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

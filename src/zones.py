@@ -351,6 +351,10 @@ class ZoneConfig:
     command: str | None = None
     refresh_interval: float | None = None  # seconds, for WATCH
 
+    # For file-watching WATCH zones (watch:PATH syntax)
+    watch_path: str | None = None  # Path to file/directory to watch
+    watch_debounce: float = 0.5  # Debounce rapid file changes (seconds)
+
     # For PTY zones
     shell: str = "/bin/bash"
 
@@ -386,6 +390,10 @@ class ZoneConfig:
             data["command"] = self.command
         if self.refresh_interval is not None:
             data["refresh_interval"] = self.refresh_interval
+        if self.watch_path:
+            data["watch_path"] = self.watch_path
+        if self.watch_debounce != 0.5:
+            data["watch_debounce"] = self.watch_debounce
         if self.shell != "/bin/bash":
             data["shell"] = self.shell
         if self.path:
@@ -418,6 +426,8 @@ class ZoneConfig:
             zone_type=zone_type,
             command=data.get("command"),
             refresh_interval=data.get("refresh_interval"),
+            watch_path=data.get("watch_path"),
+            watch_debounce=data.get("watch_debounce", 0.5),
             shell=data.get("shell", "/bin/bash"),
             path=data.get("path"),
             port=data.get("port"),
@@ -963,6 +973,27 @@ class ZoneManager:
         )
         return self.create(name, x, y, width, height, bookmark=bookmark, config=config)
 
+    def create_watch_file(
+        self,
+        name: str,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        command: str,
+        watch_path: str,
+        debounce: float = 0.5,
+        bookmark: str | None = None,
+    ) -> Zone:
+        """Create a file-watching WATCH zone that refreshes when file changes."""
+        config = ZoneConfig(
+            zone_type=ZoneType.WATCH,
+            command=command,
+            watch_path=watch_path,
+            watch_debounce=debounce,
+        )
+        return self.create(name, x, y, width, height, bookmark=bookmark, config=config)
+
     def create_pty(
         self,
         name: str,
@@ -1183,11 +1214,218 @@ class ZoneManager:
 
 
 # =============================================================================
-# ZONE EXECUTOR - Runs commands for dynamic zones
+# FILE WATCHER - Event-driven file monitoring
 # =============================================================================
 
 import subprocess
 import threading
+import time
+
+# Try to import inotify_simple for Linux file watching
+try:
+    import inotify_simple
+
+    INOTIFY_AVAILABLE = True
+except ImportError:
+    INOTIFY_AVAILABLE = False
+
+
+class FileWatcher:
+    """
+    Event-driven file watcher with inotify (Linux) and polling fallback.
+
+    Features:
+    - Uses inotify on Linux/WSL for instant updates
+    - Falls back to mtime polling on other platforms
+    - Debounces rapid changes
+    - Thread-safe start/stop
+    """
+
+    def __init__(
+        self,
+        path: str,
+        callback: "Callable[[], None]",
+        debounce: float = 0.5,
+        poll_interval: float = 1.0,
+    ):
+        """
+        Initialize file watcher.
+
+        Args:
+            path: File or directory to watch
+            callback: Function to call when file changes
+            debounce: Minimum seconds between callbacks (prevents rapid fire)
+            poll_interval: Polling interval for mtime fallback
+        """
+        self._path = path
+        self._callback = callback
+        self._debounce = debounce
+        self._poll_interval = poll_interval
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._last_callback_time = 0.0
+        self._last_mtime = 0.0
+        self._inotify: "inotify_simple.INotify | None" = None
+
+    @property
+    def path(self) -> str:
+        """The path being watched."""
+        return self._path
+
+    @property
+    def is_running(self) -> bool:
+        """Whether the watcher is currently running."""
+        return self._thread is not None and self._thread.is_alive()
+
+    def start(self) -> None:
+        """Start watching in background thread."""
+        if self.is_running:
+            return
+
+        self._stop_event.clear()
+
+        # Choose watch method based on platform and availability
+        if INOTIFY_AVAILABLE and self._can_use_inotify():
+            target = self._watch_loop_inotify
+            thread_name = f"inotify-{self._path}"
+        else:
+            target = self._watch_loop_polling
+            thread_name = f"filepoll-{self._path}"
+
+        self._thread = threading.Thread(
+            target=target,
+            name=thread_name,
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Stop watching and cleanup."""
+        self._stop_event.set()
+
+        # Close inotify if active
+        if self._inotify is not None:
+            try:
+                self._inotify.close()
+            except Exception:
+                pass
+            self._inotify = None
+
+        # Wait for thread to finish (with timeout)
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+
+    def _can_use_inotify(self) -> bool:
+        """Check if inotify can be used for this path."""
+        if not INOTIFY_AVAILABLE:
+            return False
+        # inotify works on Linux/WSL
+        import sys
+
+        return sys.platform.startswith("linux")
+
+    def _trigger_callback(self) -> None:
+        """Trigger callback with debouncing."""
+        now = time.monotonic()
+        if now - self._last_callback_time >= self._debounce:
+            self._last_callback_time = now
+            try:
+                self._callback()
+            except Exception:
+                pass  # Callback errors shouldn't stop the watcher
+
+    def _watch_loop_polling(self) -> None:
+        """Watch using mtime polling (cross-platform fallback)."""
+        # Initialize mtime
+        try:
+            import os
+
+            if os.path.exists(self._path):
+                self._last_mtime = os.path.getmtime(self._path)
+        except OSError:
+            self._last_mtime = 0.0
+
+        while not self._stop_event.is_set():
+            try:
+                import os
+
+                if os.path.exists(self._path):
+                    current_mtime = os.path.getmtime(self._path)
+                    if current_mtime > self._last_mtime:
+                        self._last_mtime = current_mtime
+                        self._trigger_callback()
+                else:
+                    # File doesn't exist - reset mtime so we detect creation
+                    self._last_mtime = 0.0
+            except OSError:
+                pass  # File may be temporarily inaccessible
+
+            # Wait for next poll interval or stop signal
+            self._stop_event.wait(timeout=self._poll_interval)
+
+    def _watch_loop_inotify(self) -> None:
+        """Watch using inotify (Linux-only, more efficient)."""
+        import os
+
+        try:
+            self._inotify = inotify_simple.INotify()
+
+            # Determine what to watch
+            watch_path = self._path
+            is_directory = os.path.isdir(self._path)
+            target_filename = None  # For filtering events when watching parent dir
+
+            if not os.path.exists(watch_path):
+                # Watch parent directory for file creation
+                target_filename = os.path.basename(self._path)
+                watch_path = os.path.dirname(watch_path) or "."
+                is_directory = True
+
+            # Set up watch flags
+            flags = inotify_simple.flags.MODIFY | inotify_simple.flags.CLOSE_WRITE
+            if is_directory:
+                flags |= (
+                    inotify_simple.flags.CREATE
+                    | inotify_simple.flags.DELETE
+                    | inotify_simple.flags.MOVED_TO
+                )
+
+            self._inotify.add_watch(watch_path, flags)
+
+            # Event loop
+            while not self._stop_event.is_set():
+                # Read events with timeout
+                events = self._inotify.read(timeout=1000)  # 1 second timeout
+                if events and not self._stop_event.is_set():
+                    # Filter events when watching parent directory for specific file
+                    if target_filename:
+                        # Only trigger if event is for our target file
+                        relevant = any(
+                            e.name == target_filename for e in events if e.name
+                        )
+                        if relevant:
+                            self._trigger_callback()
+                    else:
+                        # Watching the actual file/directory - trigger on any event
+                        self._trigger_callback()
+
+        except Exception:
+            # Fall back to polling if inotify fails
+            self._watch_loop_polling()
+        finally:
+            if self._inotify is not None:
+                try:
+                    self._inotify.close()
+                except Exception:
+                    # Ignore close errors during shutdown; watcher is stopping anyway
+                    pass
+                self._inotify = None
+
+
+# =============================================================================
+# ZONE EXECUTOR - Runs commands for dynamic zones
+# =============================================================================
 
 
 class ZoneExecutor:
@@ -1204,6 +1442,7 @@ class ZoneExecutor:
         self.zone_manager = zone_manager
         self._watch_threads: dict[str, threading.Thread] = {}
         self._stop_events: dict[str, threading.Event] = {}
+        self._file_watchers: dict[str, FileWatcher] = {}  # For file-watching zones
         self._lock = threading.Lock()
 
     def execute_pipe(self, zone: Zone, timeout: int = 30) -> bool:
@@ -1257,6 +1496,31 @@ class ZoneExecutor:
             return self.execute_pipe(zone)
         return False
 
+    def execute_with_template(self, zone: Zone, timeout: int = 30) -> bool:
+        """
+        Execute command with {file} template substitution.
+
+        Used by file-watching zones to pass the watched path to the command.
+        """
+        if zone.config.zone_type != ZoneType.WATCH:
+            return False
+        if not zone.config.command:
+            zone.set_content(["[No command configured]"])
+            return False
+
+        # Substitute {file} with watch_path
+        cmd = zone.config.command
+        if zone.config.watch_path and "{file}" in cmd:
+            cmd = cmd.replace("{file}", zone.config.watch_path)
+
+        # Temporarily override command and delegate to execute_pipe
+        original_cmd = zone.config.command
+        zone.config.command = cmd
+        try:
+            return self.execute_pipe(zone, timeout=timeout)
+        finally:
+            zone.config.command = original_cmd
+
     def start_watch(self, zone: Zone) -> None:
         """Start background refresh for a WATCH zone."""
         if zone.config.zone_type != ZoneType.WATCH:
@@ -1265,32 +1529,74 @@ class ZoneExecutor:
         key = zone.name.lower()
 
         with self._lock:
-            # Stop existing watcher if any
-            if key in self._stop_events:
-                self._stop_events[key].set()
+            # Stop any existing watcher first (interval or file-based)
+            self._stop_existing_watcher(key)
 
-            stop_event = threading.Event()
-            self._stop_events[key] = stop_event
+            # Choose watch mode based on config
+            if zone.config.watch_path:
+                # File-watching mode: use FileWatcher
+                self._start_file_watch(zone, key)
+            else:
+                # Interval-based mode: use traditional polling loop
+                self._start_interval_watch(zone, key)
 
-            thread = threading.Thread(
-                target=self._watch_loop,
-                args=(zone, stop_event),
-                daemon=True,
-                name=f"watch-{key}",
-            )
-            self._watch_threads[key] = thread
-            thread.start()
+    def _stop_existing_watcher(self, key: str) -> None:
+        """Stop any existing watcher for the given key. Must hold lock."""
+        # Stop file watcher if exists
+        if key in self._file_watchers:
+            self._file_watchers[key].stop()
+            del self._file_watchers[key]
+
+        # Stop interval watcher if exists
+        if key in self._stop_events:
+            self._stop_events[key].set()
+            del self._stop_events[key]
+        if key in self._watch_threads:
+            del self._watch_threads[key]
+
+    def _start_file_watch(self, zone: Zone, key: str) -> None:
+        """Start file-based watching. Must hold lock."""
+        watch_path = zone.config.watch_path
+        debounce = zone.config.watch_debounce
+
+        # Callback triggered when file changes
+        def on_file_change() -> None:
+            if not zone.config.paused:
+                self.execute_with_template(zone)
+
+        # Create and start file watcher
+        watcher = FileWatcher(
+            path=watch_path,
+            callback=on_file_change,
+            debounce=debounce,
+        )
+        self._file_watchers[key] = watcher
+
+        # Initial execution
+        self.execute_with_template(zone)
+
+        watcher.start()
+
+    def _start_interval_watch(self, zone: Zone, key: str) -> None:
+        """Start interval-based watching. Must hold lock."""
+        stop_event = threading.Event()
+        self._stop_events[key] = stop_event
+
+        thread = threading.Thread(
+            target=self._watch_loop,
+            args=(zone, stop_event),
+            daemon=True,
+            name=f"watch-{key}",
+        )
+        self._watch_threads[key] = thread
+        thread.start()
 
     def stop_watch(self, name: str) -> None:
         """Stop background refresh for a WATCH zone."""
         key = name.lower()
 
         with self._lock:
-            if key in self._stop_events:
-                self._stop_events[key].set()
-                del self._stop_events[key]
-            if key in self._watch_threads:
-                del self._watch_threads[key]
+            self._stop_existing_watcher(key)
 
     def pause_zone(self, name: str) -> bool:
         """Pause a WATCH zone refresh."""
@@ -1328,8 +1634,14 @@ class ZoneExecutor:
             self.execute_pipe(zone)
 
     def stop_all(self) -> None:
-        """Stop all watch threads."""
+        """Stop all watch threads and file watchers."""
         with self._lock:
+            # Stop all file watchers
+            for watcher in self._file_watchers.values():
+                watcher.stop()
+            self._file_watchers.clear()
+
+            # Stop all interval watchers
             for stop_event in self._stop_events.values():
                 stop_event.set()
             self._stop_events.clear()
