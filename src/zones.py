@@ -1374,9 +1374,11 @@ class FileWatcher:
             # Determine what to watch
             watch_path = self._path
             is_directory = os.path.isdir(self._path)
+            target_filename = None  # For filtering events when watching parent dir
 
             if not os.path.exists(watch_path):
                 # Watch parent directory for file creation
+                target_filename = os.path.basename(self._path)
                 watch_path = os.path.dirname(watch_path) or "."
                 is_directory = True
 
@@ -1389,14 +1391,24 @@ class FileWatcher:
                     | inotify_simple.flags.MOVED_TO
                 )
 
-            wd = self._inotify.add_watch(watch_path, flags)
+            self._inotify.add_watch(watch_path, flags)
 
             # Event loop
             while not self._stop_event.is_set():
                 # Read events with timeout
                 events = self._inotify.read(timeout=1000)  # 1 second timeout
                 if events and not self._stop_event.is_set():
-                    self._trigger_callback()
+                    # Filter events when watching parent directory for specific file
+                    if target_filename:
+                        # Only trigger if event is for our target file
+                        relevant = any(
+                            e.name == target_filename for e in events if e.name
+                        )
+                        if relevant:
+                            self._trigger_callback()
+                    else:
+                        # Watching the actual file/directory - trigger on any event
+                        self._trigger_callback()
 
         except Exception:
             # Fall back to polling if inotify fails
@@ -1406,6 +1418,7 @@ class FileWatcher:
                 try:
                     self._inotify.close()
                 except Exception:
+                    # Ignore close errors during shutdown; watcher is stopping anyway
                     pass
                 self._inotify = None
 
@@ -1500,32 +1513,13 @@ class ZoneExecutor:
         if zone.config.watch_path and "{file}" in cmd:
             cmd = cmd.replace("{file}", zone.config.watch_path)
 
+        # Temporarily override command and delegate to execute_pipe
+        original_cmd = zone.config.command
+        zone.config.command = cmd
         try:
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-
-            output = result.stdout
-            if result.stderr:
-                output += "\n" + result.stderr
-
-            lines = output.split("\n")
-            while lines and not lines[-1]:
-                lines.pop()
-
-            zone.set_content(lines)
-            return result.returncode == 0
-
-        except subprocess.TimeoutExpired:
-            zone.set_content([f"[Command timed out after {timeout}s]"])
-            return False
-        except Exception as e:
-            zone.set_content([f"[Error: {e}]"])
-            return False
+            return self.execute_pipe(zone, timeout=timeout)
+        finally:
+            zone.config.command = original_cmd
 
     def start_watch(self, zone: Zone) -> None:
         """Start background refresh for a WATCH zone."""
