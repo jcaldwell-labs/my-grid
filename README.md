@@ -348,17 +348,19 @@ ls -la | ./scripts/mygrid-pipe 0 0
 
 See **[API Scripting Guide](docs/guides/api-scripting.md)** for full documentation.
 
-### PTY Zones with Scrollback (NEW!)
+### PTY Zones with Full Terminal Emulation
 
-Interactive terminals with full history navigation:
+Interactive terminals powered by pyte for proper VT100/ANSI emulation:
 
 ```bash
 :zone pty TERM 80 24
 # Press Enter in zone to focus
-# PgUp/PgDn to scroll through history
+# PgUp/PgDn to scroll through history (colors preserved!)
 # Home/End for top/bottom
 # Esc to unfocus
 ```
+
+Features: Full color support, cursor control, backspace handling, scrollback with colors.
 
 ### Claude Code Integration
 

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from canvas import Canvas
     from viewport import Viewport
     from renderer import GridSettings
-    from modes import ModeConfig, BookmarkManager
+    from modes import BookmarkManager
     from zones import ZoneManager
 
 
@@ -307,7 +307,6 @@ class Project:
 
         # Load bookmarks
         if bookmarks and "bookmarks" in data:
-            from modes import BookmarkManager
 
             bm_data = data["bookmarks"]
             for key, bm in bm_data.items():

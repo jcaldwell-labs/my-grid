@@ -1,6 +1,5 @@
 """Tests for PTY terminal emulation using pyte."""
 
-import pytest
 from src.pty_screen import PTYScreen
 
 
@@ -141,7 +140,7 @@ class TestPTYScreen:
         lines = screen.get_display_lines()
         assert len(lines) == 24
         # All lines should be empty or whitespace
-        assert all(line.strip() == '' or line == ' ' * 80 for line in lines)
+        assert all(line.strip() == "" or line == " " * 80 for line in lines)
 
 
 class TestPTYScreenEdgeCases:
@@ -181,3 +180,152 @@ class TestPTYScreenEdgeCases:
         lines = screen.get_display_lines()
         # Should handle unicode gracefully
         assert len(lines) == 24
+
+
+class TestPTYScreenColors:
+    """Test ANSI color handling in pyte."""
+
+    def test_styled_output_basic(self):
+        """Test get_display_lines_styled returns styled characters."""
+        screen = PTYScreen(80, 24)
+        screen.feed("Hello")
+
+        styled_lines = screen.get_display_lines_styled()
+        assert len(styled_lines) == 24
+        assert len(styled_lines[0]) == 80  # Full line width
+
+        # Check first 5 chars are 'Hello'
+        chars = "".join(sc.char for sc in styled_lines[0][:5])
+        assert chars == "Hello"
+
+    def test_foreground_color_red(self):
+        """Test red foreground color is parsed correctly."""
+        screen = PTYScreen(80, 24)
+        # ESC[31m = red foreground
+        screen.feed("\x1b[31mRed Text\x1b[0m")
+
+        styled_lines = screen.get_display_lines_styled()
+        first_char = styled_lines[0][0]
+
+        # Red is color 1
+        assert first_char.char == "R"
+        assert first_char.fg == 1
+
+    def test_foreground_color_green(self):
+        """Test green foreground color."""
+        screen = PTYScreen(80, 24)
+        # ESC[32m = green foreground
+        screen.feed("\x1b[32mGreen\x1b[0m")
+
+        styled_lines = screen.get_display_lines_styled()
+        first_char = styled_lines[0][0]
+
+        # Green is color 2
+        assert first_char.char == "G"
+        assert first_char.fg == 2
+
+    def test_background_color(self):
+        """Test background color is parsed correctly."""
+        screen = PTYScreen(80, 24)
+        # ESC[44m = blue background
+        screen.feed("\x1b[44mBlue BG\x1b[0m")
+
+        styled_lines = screen.get_display_lines_styled()
+        first_char = styled_lines[0][0]
+
+        # Blue is color 4
+        assert first_char.char == "B"
+        assert first_char.bg == 4
+
+    def test_combined_fg_bg_colors(self):
+        """Test combined foreground and background colors."""
+        screen = PTYScreen(80, 24)
+        # ESC[31;42m = red on green
+        screen.feed("\x1b[31;42mRed on Green\x1b[0m")
+
+        styled_lines = screen.get_display_lines_styled()
+        first_char = styled_lines[0][0]
+
+        assert first_char.fg == 1  # Red
+        assert first_char.bg == 2  # Green
+
+    def test_color_reset(self):
+        """Test colors reset to default."""
+        screen = PTYScreen(80, 24)
+        # Red text, then reset, then normal text
+        screen.feed("\x1b[31mRed\x1b[0mNormal")
+
+        styled_lines = screen.get_display_lines_styled()
+
+        # First 3 chars are red
+        assert styled_lines[0][0].fg == 1  # R
+        assert styled_lines[0][1].fg == 1  # e
+        assert styled_lines[0][2].fg == 1  # d
+
+        # Chars after reset are default (-1)
+        assert styled_lines[0][3].fg == -1  # N
+        assert styled_lines[0][4].fg == -1  # o
+
+    def test_bright_colors_mapped(self):
+        """Test bright colors are mapped to basic colors."""
+        screen = PTYScreen(80, 24)
+        # ESC[91m = bright red (should map to red)
+        screen.feed("\x1b[91mBright Red\x1b[0m")
+
+        styled_lines = screen.get_display_lines_styled()
+        first_char = styled_lines[0][0]
+
+        # Bright red maps to red (1)
+        assert first_char.fg == 1
+
+    def test_default_colors(self):
+        """Test default colors are -1."""
+        screen = PTYScreen(80, 24)
+        screen.feed("Plain text")
+
+        styled_lines = screen.get_display_lines_styled()
+        first_char = styled_lines[0][0]
+
+        # Default colors
+        assert first_char.fg == -1
+        assert first_char.bg == -1
+
+    def test_styled_scrollback(self):
+        """Test scrollback styled lines."""
+        screen = PTYScreen(80, 5, history=100)
+
+        # Fill screen with colored lines
+        for i in range(10):
+            screen.feed(f"\x1b[3{i % 8}mLine {i}\x1b[0m\n")
+
+        # Get styled lines from current screen
+        styled_current = screen.get_display_lines_styled(scroll_offset=0)
+        assert len(styled_current) == 5
+
+        # Get styled lines from scrollback
+        styled_history = screen.get_display_lines_styled(scroll_offset=5)
+        assert len(styled_history) == 5
+
+    def test_all_basic_colors(self):
+        """Test all 8 basic foreground colors are recognized."""
+        # Feed all basic colors
+        colors = [
+            (30, "black", 0),
+            (31, "red", 1),
+            (32, "green", 2),
+            (33, "yellow", 3),
+            (34, "blue", 4),
+            (35, "magenta", 5),
+            (36, "cyan", 6),
+            (37, "white", 7),
+        ]
+
+        for code, name, expected in colors:
+            screen = PTYScreen(80, 24)
+            screen.feed(f"\x1b[{code}m{name}\x1b[0m")
+
+            styled_lines = screen.get_display_lines_styled()
+            first_char = styled_lines[0][0]
+            assert (
+                first_char.fg == expected
+            ), f"Color {name} (code {code}) should be {expected}, got {first_char.fg}"

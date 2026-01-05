@@ -9,7 +9,6 @@ import pygame
 from pygame.locals import *
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Callable
 
 
 class Action(Enum):

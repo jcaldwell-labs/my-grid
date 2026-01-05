@@ -6,13 +6,13 @@ sequences, and provides scrollback history.
 """
 
 import pyte
-from typing import Optional
 from dataclasses import dataclass
 
 
 @dataclass
 class StyledChar:
     """A character with color information from pyte terminal."""
+
     char: str
     fg: int = -1  # Foreground color (-1 = default, 0-7 = colors)
     bg: int = -1  # Background color (-1 = default, 0-7 = colors)
@@ -28,18 +28,19 @@ def _map_pyte_color(pyte_color: str) -> int:
     Returns:
         Color code 0-7, or -1 for default
     """
-    if not pyte_color or pyte_color == 'default':
+    if not pyte_color or pyte_color == "default":
         return -1
 
     color_map = {
-        'black': 0,
-        'red': 1,
-        'green': 2,
-        'yellow': 3,
-        'blue': 4,
-        'magenta': 5,
-        'cyan': 6,
-        'white': 7,
+        "black": 0,
+        "red": 1,
+        "green": 2,
+        "yellow": 3,
+        "brown": 3,  # pyte uses 'brown' for ANSI yellow (code 33)
+        "blue": 4,
+        "magenta": 5,
+        "cyan": 6,
+        "white": 7,
     }
 
     # Handle basic colors
@@ -47,8 +48,8 @@ def _map_pyte_color(pyte_color: str) -> int:
         return color_map[pyte_color]
 
     # Handle bright variants (map to same basic color for 8-color mode)
-    if pyte_color.startswith('bright'):
-        base_color = pyte_color.replace('bright', '').strip()
+    if pyte_color.startswith("bright"):
+        base_color = pyte_color.replace("bright", "").strip()
         return color_map.get(base_color, -1)
 
     # Unknown color - use default
@@ -110,7 +111,9 @@ class PTYScreen:
             # Scrolled back into history
             return self._get_scrolled_screen(scroll_offset)
 
-    def get_display_lines_styled(self, scroll_offset: int = 0) -> list[list[StyledChar]]:
+    def get_display_lines_styled(
+        self, scroll_offset: int = 0
+    ) -> list[list[StyledChar]]:
         """
         Get current display lines with colors and optional scrollback.
 
@@ -139,13 +142,16 @@ class PTYScreen:
                 char = self.screen.buffer[y][x]
                 # char is a pyte.Char object with .data attribute
                 line_chars.append(char.data)
-            lines.append(''.join(line_chars))
+            lines.append("".join(line_chars))
         return lines
 
     def _get_scrolled_screen(self, scroll_offset: int) -> list[str]:
         """Get screen display scrolled back into history."""
-        # Get history lines (deque of lines)
-        history_lines = list(self.screen.history.top)
+        # Get history lines (StaticDefaultDict objects) and convert to strings
+        history_lines = []
+        for line_dict in self.screen.history.top:
+            line_chars = [line_dict[x].data for x in range(self.width)]
+            history_lines.append("".join(line_chars))
 
         # Get current screen lines
         current_lines = self._get_current_screen()
@@ -176,17 +182,23 @@ class PTYScreen:
 
     def _get_scrolled_screen_styled(self, scroll_offset: int) -> list[list[StyledChar]]:
         """Get screen display scrolled back into history with colors."""
-        # Note: pyte history stores plain text, not styled characters
-        # So scrolled-back content won't have colors (pyte limitation)
-        # For now, convert plain text history to StyledChar with default colors
+        # Note: pyte history stores StaticDefaultDict objects, not plain strings
+        # Each history line is a dict where keys are column indices and values
+        # are Char objects. Colors ARE preserved in history!
 
-        # Get history lines (plain strings)
+        # Get history lines (StaticDefaultDict objects)
         history_lines = list(self.screen.history.top)
 
-        # Convert history to styled format (no colors)
+        # Convert history to styled format WITH colors from Char objects
         styled_history = []
-        for line in history_lines:
-            styled_line = [StyledChar(ch, -1, -1) for ch in line.ljust(self.width)]
+        for line_dict in history_lines:
+            styled_line = []
+            for x in range(self.width):
+                char_obj = line_dict[x]  # StaticDefaultDict returns Char or default
+                # Extract character and colors from pyte Char object
+                fg = _map_pyte_color(char_obj.fg)
+                bg = _map_pyte_color(char_obj.bg)
+                styled_line.append(StyledChar(char_obj.data, fg, bg))
             styled_history.append(styled_line)
 
         # Get current screen with colors

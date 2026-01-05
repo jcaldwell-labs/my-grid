@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from queue import Queue, Empty, Full
 from threading import Lock
 import time
-from typing import Any
 
 
 @dataclass
