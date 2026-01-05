@@ -308,8 +308,6 @@ class TestPTYScreenColors:
 
     def test_all_basic_colors(self):
         """Test all 8 basic foreground colors are recognized."""
-        screen = PTYScreen(80, 24)
-
         # Feed all basic colors
         colors = [
             (30, "black", 0),
