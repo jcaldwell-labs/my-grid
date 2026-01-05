@@ -187,37 +187,38 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 
 ### Zone Types
 
-| Type      | Description                       | Command                             |
-| --------- | --------------------------------- | ----------------------------------- |
-| STATIC    | Plain text region (default)       | `:zone create NAME X Y W H`         |
-| PIPE      | One-shot command output           | `:zone pipe NAME W H CMD`           |
-| WATCH     | Periodic refresh command          | `:zone watch NAME W H INTERVAL CMD` |
-| PTY       | Live terminal session (Unix)      | `:zone pty NAME W H [SHELL]`        |
-| PAGER     | Paginated file viewer with colors | `:zone pager NAME W H FILE`         |
-| FIFO      | Named pipe listener (Unix)        | `:zone fifo NAME W H PATH`          |
-| SOCKET    | TCP port listener                 | `:zone socket NAME W H PORT`        |
-| CLIPBOARD | Yank/paste buffer                 | `:clipboard zone`                   |
+| Type      | Description                       | Command                                           |
+| --------- | --------------------------------- | ------------------------------------------------- |
+| STATIC    | Plain text region (default)       | `:zone create NAME X Y W H`                       |
+| PIPE      | One-shot command output           | `:zone pipe NAME W H CMD`                         |
+| WATCH     | Periodic or event-driven refresh  | `:zone watch NAME W H (INTERVAL\|watch:PATH) CMD` |
+| PTY       | Live terminal session (Unix)      | `:zone pty NAME W H [SHELL]`                      |
+| PAGER     | Paginated file viewer with colors | `:zone pager NAME W H FILE`                       |
+| FIFO      | Named pipe listener (Unix)        | `:zone fifo NAME W H PATH`                        |
+| SOCKET    | TCP port listener                 | `:zone socket NAME W H PORT`                      |
+| CLIPBOARD | Yank/paste buffer                 | `:clipboard zone`                                 |
 
 ### Zone Commands
 
-| Command                       | Description                                     |
-| ----------------------------- | ----------------------------------------------- |
-| `:zone create NAME X Y W H`   | Create static zone at coordinates               |
-| `:zone create NAME here W H`  | Create zone at cursor position                  |
-| `:zone pipe NAME W H CMD`     | Create pipe zone, execute command once          |
-| `:zone watch NAME W H 5s CMD` | Create watch zone, refresh every 5 seconds      |
-| `:zone pty NAME W H [SHELL]`  | Create PTY zone with live terminal (Unix)       |
-| `:zone fifo NAME W H PATH`    | Create FIFO zone listening on named pipe (Unix) |
-| `:zone socket NAME W H PORT`  | Create socket zone listening on TCP port        |
-| `:zone delete NAME`           | Delete zone                                     |
-| `:zone goto NAME`             | Jump cursor to zone center                      |
-| `:zone info [NAME]`           | Show zone info                                  |
-| `:zone refresh NAME`          | Manually refresh pipe/watch zone                |
-| `:zone pause NAME`            | Pause watch zone refresh                        |
-| `:zone resume NAME`           | Resume watch zone refresh                       |
-| `:zone send NAME TEXT`        | Send text to PTY zone                           |
-| `:zone focus NAME`            | Focus PTY zone for keyboard input               |
-| `:zones`                      | List all zones                                  |
+| Command                               | Description                                     |
+| ------------------------------------- | ----------------------------------------------- |
+| `:zone create NAME X Y W H`           | Create static zone at coordinates               |
+| `:zone create NAME here W H`          | Create zone at cursor position                  |
+| `:zone pipe NAME W H CMD`             | Create pipe zone, execute command once          |
+| `:zone watch NAME W H 5s CMD`         | Create watch zone, refresh every 5 seconds      |
+| `:zone watch NAME W H watch:PATH CMD` | Create watch zone triggered by file changes     |
+| `:zone pty NAME W H [SHELL]`          | Create PTY zone with live terminal (Unix)       |
+| `:zone fifo NAME W H PATH`            | Create FIFO zone listening on named pipe (Unix) |
+| `:zone socket NAME W H PORT`          | Create socket zone listening on TCP port        |
+| `:zone delete NAME`                   | Delete zone                                     |
+| `:zone goto NAME`                     | Jump cursor to zone center                      |
+| `:zone info [NAME]`                   | Show zone info                                  |
+| `:zone refresh NAME`                  | Manually refresh pipe/watch zone                |
+| `:zone pause NAME`                    | Pause watch zone refresh                        |
+| `:zone resume NAME`                   | Resume watch zone refresh                       |
+| `:zone send NAME TEXT`                | Send text to PTY zone                           |
+| `:zone focus NAME`                    | Focus PTY zone for keyboard input               |
+| `:zones`                              | List all zones                                  |
 
 ### Examples
 
@@ -227,6 +228,15 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 
 # Show git status, refresh every 5 seconds
 :zone watch GIT 50 15 5s git status --short
+
+# Watch log file - instant refresh when file changes (Linux/WSL)
+:zone watch LOG 80 20 watch:/var/log/app.log "tail -20 {file}"
+
+# Watch .git directory - instant refresh on git operations
+:zone watch GIT 50 15 watch:.git "git status --short"
+
+# Watch config file for changes
+:zone watch CONFIG 60 10 watch:/etc/nginx/nginx.conf "cat {file}"
 
 # One-shot command output
 :zone pipe TREE 60 20 tree -L 2
