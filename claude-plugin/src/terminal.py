@@ -8,19 +8,153 @@ for the my-grid ASCII canvas editor.
 
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 # Pane tracking file
 PANE_ID_FILE = Path("/tmp/mygrid-pane-id")
 
-# Default my-grid location (relative to plugin root)
-MYGRID_ROOT = Path(__file__).parent.parent.parent
 
-# Python executable (prefer venv if exists)
-VENV_PYTHON = MYGRID_ROOT / ".venv" / "bin" / "python3"
-PYTHON_EXE = str(VENV_PYTHON) if VENV_PYTHON.exists() else "python3"
+def find_mygrid_root() -> Path:
+    """
+    Find the my-grid project root directory.
+
+    Searches in order:
+    1. MYGRID_ROOT environment variable
+    2. Marketplace directory (when installed as Claude plugin)
+    3. Relative to this file (development mode)
+    4. Current working directory
+
+    Returns:
+        Path to my-grid root directory
+
+    Raises:
+        RuntimeError: If mygrid.py cannot be found
+    """
+    # Check environment variable first
+    if env_root := os.environ.get("MYGRID_ROOT"):
+        root = Path(env_root)
+        if (root / "mygrid.py").exists():
+            return root
+
+    # Check marketplace directory (plugin installed from marketplace)
+    # Cache path: ~/.claude/plugins/cache/my-grid/grid/0.1.0/src/terminal.py
+    # Marketplace: ~/.claude/plugins/marketplaces/my-grid/
+    plugin_file = Path(__file__)
+    cache_path = plugin_file.parent.parent  # cache/my-grid/grid/0.1.0/
+    plugins_root = cache_path.parent.parent.parent.parent  # ~/.claude/plugins/
+    marketplace_path = plugins_root / "marketplaces" / "my-grid"
+    if (marketplace_path / "mygrid.py").exists():
+        return marketplace_path
+
+    # Development mode: plugin is inside my-grid project
+    # Path: my-grid/claude-plugin/src/terminal.py
+    dev_root = plugin_file.parent.parent.parent
+    if (dev_root / "mygrid.py").exists():
+        return dev_root
+
+    # Try current working directory
+    cwd = Path.cwd()
+    if (cwd / "mygrid.py").exists():
+        return cwd
+
+    raise RuntimeError(
+        "Cannot find my-grid installation. Set MYGRID_ROOT environment variable "
+        "or ensure my-grid is installed in the Claude plugins marketplace."
+    )
+
+
+def find_python_executable(mygrid_root: Path) -> Tuple[str, Optional[Path]]:
+    """
+    Find the best Python executable for running my-grid.
+
+    Checks for virtual environment in the project root.
+
+    Args:
+        mygrid_root: Path to my-grid project root
+
+    Returns:
+        Tuple of (python executable path/command, venv path or None)
+    """
+    # Check for .venv in project root
+    venv_python = mygrid_root / ".venv" / "bin" / "python3"
+    if venv_python.exists():
+        return str(venv_python), mygrid_root / ".venv"
+
+    # Check for venv (alternative name)
+    venv_python = mygrid_root / "venv" / "bin" / "python3"
+    if venv_python.exists():
+        return str(venv_python), mygrid_root / "venv"
+
+    # Fall back to system Python
+    return "python3", None
+
+
+def ensure_venv_ready(mygrid_root: Path) -> Tuple[str, bool]:
+    """
+    Ensure virtual environment exists and has dependencies installed.
+
+    Creates venv and installs requirements if needed.
+
+    Args:
+        mygrid_root: Path to my-grid project root
+
+    Returns:
+        Tuple of (python executable, whether bootstrap was needed)
+    """
+    python_exe, venv_path = find_python_executable(mygrid_root)
+
+    if venv_path:
+        # Venv exists, assume it's ready
+        return python_exe, False
+
+    # No venv - check if we should create one
+    requirements = mygrid_root / "requirements.txt"
+    if not requirements.exists():
+        # No requirements file, use system Python
+        return "python3", False
+
+    # Create venv and install dependencies
+    venv_path = mygrid_root / ".venv"
+    print(f"Creating virtual environment at {venv_path}...", file=sys.stderr)
+
+    result = subprocess.run(
+        ["python3", "-m", "venv", str(venv_path)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"Warning: Failed to create venv: {result.stderr}", file=sys.stderr)
+        return "python3", False
+
+    # Install requirements
+    pip_exe = venv_path / "bin" / "pip"
+    print(f"Installing dependencies from {requirements}...", file=sys.stderr)
+
+    result = subprocess.run(
+        [str(pip_exe), "install", "-r", str(requirements)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"Warning: Failed to install deps: {result.stderr}", file=sys.stderr)
+        return "python3", False
+
+    python_exe = str(venv_path / "bin" / "python3")
+    print("Bootstrap complete!", file=sys.stderr)
+    return python_exe, True
+
+
+# Initialize paths
+try:
+    MYGRID_ROOT = find_mygrid_root()
+    PYTHON_EXE, _venv = find_python_executable(MYGRID_ROOT)
+except RuntimeError:
+    # Defer error to runtime when spawn is actually called
+    MYGRID_ROOT = Path(__file__).parent.parent.parent
+    PYTHON_EXE = "python3"
 
 
 def in_tmux() -> bool:
@@ -62,7 +196,12 @@ def save_pane_id(pane_id: str) -> None:
     PANE_ID_FILE.write_text(pane_id)
 
 
-def spawn_pane(ratio: int = 67, port: int = 8765, layout: Optional[str] = None) -> str:
+def spawn_pane(
+    ratio: int = 67,
+    port: int = 8765,
+    layout: Optional[str] = None,
+    bootstrap: bool = True,
+) -> str:
     """
     Create new tmux pane running my-grid.
 
@@ -70,6 +209,7 @@ def spawn_pane(ratio: int = 67, port: int = 8765, layout: Optional[str] = None) 
         ratio: Width percentage for new pane (default 67 = 2/3)
         port: TCP server port
         layout: Optional layout to load on startup
+        bootstrap: Auto-create venv and install deps if needed (default True)
 
     Returns:
         Pane ID of created pane
@@ -80,9 +220,23 @@ def spawn_pane(ratio: int = 67, port: int = 8765, layout: Optional[str] = None) 
     if not in_tmux():
         raise RuntimeError("Not in tmux session. Run: tmux new -s grid")
 
+    # Find project root and ensure dependencies are available
+    try:
+        mygrid_root = find_mygrid_root()
+    except RuntimeError as e:
+        raise RuntimeError(str(e))
+
+    # Bootstrap venv if needed
+    if bootstrap:
+        python_exe, bootstrapped = ensure_venv_ready(mygrid_root)
+        if bootstrapped:
+            print("Dependencies installed successfully", file=sys.stderr)
+    else:
+        python_exe, _ = find_python_executable(mygrid_root)
+
     # Build command
-    mygrid_path = MYGRID_ROOT / "mygrid.py"
-    cmd = f"{PYTHON_EXE} {mygrid_path} --server --port {port}"
+    mygrid_path = mygrid_root / "mygrid.py"
+    cmd = f"{python_exe} {mygrid_path} --server --port {port}"
     if layout:
         cmd += f" --layout {layout}"
 
@@ -90,8 +244,21 @@ def spawn_pane(ratio: int = 67, port: int = 8765, layout: Optional[str] = None) 
     # -h: horizontal split (side by side)
     # -p: percentage width
     # -P -F: print new pane ID
+    # -c: start in project directory
     result = subprocess.run(
-        ["tmux", "split-window", "-h", "-p", str(ratio), "-P", "-F", "#{pane_id}", cmd],
+        [
+            "tmux",
+            "split-window",
+            "-h",
+            "-p",
+            str(ratio),
+            "-c",
+            str(mygrid_root),
+            "-P",
+            "-F",
+            "#{pane_id}",
+            cmd,
+        ],
         capture_output=True,
         text=True,
     )
@@ -104,7 +271,12 @@ def spawn_pane(ratio: int = 67, port: int = 8765, layout: Optional[str] = None) 
     return pane_id
 
 
-def reuse_pane(pane_id: str, port: int = 8765, layout: Optional[str] = None) -> bool:
+def reuse_pane(
+    pane_id: str,
+    port: int = 8765,
+    layout: Optional[str] = None,
+    bootstrap: bool = True,
+) -> bool:
     """
     Reuse existing pane by killing current process and starting new.
 
@@ -112,6 +284,7 @@ def reuse_pane(pane_id: str, port: int = 8765, layout: Optional[str] = None) -> 
         pane_id: Existing pane ID
         port: TCP server port
         layout: Optional layout to load
+        bootstrap: Auto-create venv and install deps if needed (default True)
 
     Returns:
         True if successful
@@ -120,9 +293,21 @@ def reuse_pane(pane_id: str, port: int = 8765, layout: Optional[str] = None) -> 
     subprocess.run(["tmux", "send-keys", "-t", pane_id, "C-c"], check=False)
     time.sleep(0.2)
 
+    # Find project root and ensure dependencies are available
+    try:
+        mygrid_root = find_mygrid_root()
+    except RuntimeError:
+        mygrid_root = MYGRID_ROOT
+
+    # Bootstrap venv if needed
+    if bootstrap:
+        python_exe, _ = ensure_venv_ready(mygrid_root)
+    else:
+        python_exe, _ = find_python_executable(mygrid_root)
+
     # Build new command
-    mygrid_path = MYGRID_ROOT / "mygrid.py"
-    cmd = f"clear && {PYTHON_EXE} {mygrid_path} --server --port {port}"
+    mygrid_path = mygrid_root / "mygrid.py"
+    cmd = f"clear && {python_exe} {mygrid_path} --server --port {port}"
     if layout:
         cmd += f" --layout {layout}"
 
@@ -141,6 +326,7 @@ def spawn_or_reuse(
     port: int = 8765,
     layout: Optional[str] = None,
     force_new: bool = False,
+    bootstrap: bool = True,
 ) -> str:
     """
     Spawn new pane or reuse existing one.
@@ -150,6 +336,7 @@ def spawn_or_reuse(
         port: TCP server port
         layout: Optional layout to load
         force_new: Force creation of new pane
+        bootstrap: Auto-create venv and install deps if needed (default True)
 
     Returns:
         Pane ID
@@ -157,10 +344,10 @@ def spawn_or_reuse(
     if not force_new:
         existing = get_pane_id()
         if existing:
-            reuse_pane(existing, port, layout)
+            reuse_pane(existing, port, layout, bootstrap=bootstrap)
             return existing
 
-    return spawn_pane(ratio, port, layout)
+    return spawn_pane(ratio, port, layout, bootstrap=bootstrap)
 
 
 # === Pane Management Functions ===
