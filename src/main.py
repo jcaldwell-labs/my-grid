@@ -275,12 +275,12 @@ class Application:
             zone = self.zone_manager.get(self._focused_pty)
             if zone and zone.zone_type == ZoneType.PTY:
                 if zone.config.pty_auto_scroll:
-                    return f" [PTY] {self._focused_pty} - PgUp:scroll Esc:unfocus"
+                    return f" [PTY] {self._focused_pty} - Shift+PgUp:scroll Esc:unfocus"
                 else:
                     # In scroll mode
                     total = len(zone._content_lines)
                     line = zone.config.pty_scroll_offset + 1
-                    return f" [PTY SCROLL] {self._focused_pty} - {line}/{total} - End:auto Esc:unfocus"
+                    return f" [PTY SCROLL] {self._focused_pty} - {line}/{total} - Shift+End:auto Esc:unfocus"
             return f" [PTY] {self._focused_pty} - Esc:unfocus"
 
         # Show PAGER focus mode indicator
@@ -712,6 +712,10 @@ class Application:
             data = "\x1b[H"
         elif key == curses.KEY_END:
             data = "\x1b[F"
+        elif key == curses.KEY_PPAGE:  # Page Up
+            data = "\x1b[5~"
+        elif key == curses.KEY_NPAGE:  # Page Down
+            data = "\x1b[6~"
         elif key == 10 or key == 13:  # Enter
             data = "\r"  # Use carriage return instead of newline for PTY
             self._show_message("DEBUG: Sending Enter (\\r) to PTY", frames=120)
@@ -732,14 +736,14 @@ class Application:
         """
         Handle scroll keys when a PTY zone is focused.
 
-        IMPORTANT: Only use special keys (PgUp/PgDn/Home/End) to avoid
-        conflicts with terminal input. Do NOT use letters like d, u, g, G!
+        Uses Shift+PgUp/PgDn for scrollback so raw PgUp/PgDn can be
+        forwarded to the PTY application.
 
         Keys:
-            PgUp: Scroll up half page (enters scroll mode)
-            PgDn: Scroll down half page
-            Home: Go to top of history
-            End: Go to bottom (re-enables auto-scroll)
+            Shift+PgUp: Scroll up half page (enters scroll mode)
+            Shift+PgDn: Scroll down half page
+            Shift+Home: Go to top of history
+            Shift+End: Go to bottom (re-enables auto-scroll)
 
         Returns:
             True if key was a scroll key, False to forward to PTY
@@ -751,12 +755,14 @@ class Application:
         if not zone or zone.zone_type != ZoneType.PTY:
             return False
 
-        # ONLY use special keys - no letters!
+        # Use Shift+PgUp/PgDn for scrollback (raw PgUp/PgDn go to PTY)
+        # KEY_SPREVIOUS = Shift+PgUp, KEY_SNEXT = Shift+PgDn
+        # KEY_SHOME = Shift+Home, KEY_SEND = Shift+End
         if key not in (
-            curses.KEY_PPAGE,
-            curses.KEY_NPAGE,
-            curses.KEY_HOME,
-            curses.KEY_END,
+            curses.KEY_SPREVIOUS,  # Shift+PgUp
+            curses.KEY_SNEXT,  # Shift+PgDn
+            curses.KEY_SHOME,  # Shift+Home
+            curses.KEY_SEND,  # Shift+End
         ):
             return False
 
@@ -765,38 +771,42 @@ class Application:
         max_offset = max(0, total_lines - content_h)
         half_page = content_h // 2
 
-        # PgUp: Scroll up half page (enters scroll mode)
-        if key == curses.KEY_PPAGE:
+        # Shift+PgUp: Scroll up half page (enters scroll mode)
+        if key == curses.KEY_SPREVIOUS:
             zone.config.pty_auto_scroll = False
             zone.config.pty_scroll_offset = max(
                 0, zone.config.pty_scroll_offset - half_page
             )
             line = zone.config.pty_scroll_offset + 1
-            self._show_message(f"PTY scroll: line {line}/{total_lines} | End:auto")
+            self._show_message(
+                f"PTY scroll: line {line}/{total_lines} | Shift+End:auto"
+            )
             return True
 
-        # PgDn: Scroll down half page
-        elif key == curses.KEY_NPAGE:
+        # Shift+PgDn: Scroll down half page
+        elif key == curses.KEY_SNEXT:
             zone.config.pty_auto_scroll = False
             zone.config.pty_scroll_offset = min(
                 max_offset, zone.config.pty_scroll_offset + half_page
             )
             line = zone.config.pty_scroll_offset + 1
-            self._show_message(f"PTY scroll: line {line}/{total_lines} | End:auto")
+            self._show_message(
+                f"PTY scroll: line {line}/{total_lines} | Shift+End:auto"
+            )
             return True
 
-        # Home: Go to top
-        elif key == curses.KEY_HOME:
+        # Shift+Home: Go to top
+        elif key == curses.KEY_SHOME:
             zone.config.pty_auto_scroll = False
             zone.config.pty_scroll_offset = 0
-            self._show_message("PTY scroll: top | End:auto")
+            self._show_message("PTY scroll: top | Shift+End:auto")
             return True
 
-        # End: Go to bottom (re-enable auto-scroll)
-        elif key == curses.KEY_END:
+        # Shift+End: Go to bottom (re-enable auto-scroll)
+        elif key == curses.KEY_SEND:
             zone.config.pty_auto_scroll = True
             zone.config.pty_scroll_offset = 0
-            self._show_message("PTY auto-scroll ON | PgUp:scroll")
+            self._show_message("PTY auto-scroll ON | Shift+PgUp:scroll")
             return True
 
         return False

@@ -288,24 +288,26 @@ PTY zones provide live interactive terminals with full echo, ANSI color support,
 
 When focused on a PTY zone, you can scroll through terminal history:
 
-| Key    | Action                                   |
-| ------ | ---------------------------------------- |
-| `PgUp` | Scroll up half page (enters scroll mode) |
-| `PgDn` | Scroll down half page                    |
-| `Home` | Go to top of history                     |
-| `End`  | Go to bottom (re-enables auto-scroll)    |
-| `Esc`  | Unfocus PTY                              |
+| Key          | Action                                   |
+| ------------ | ---------------------------------------- |
+| `Shift+PgUp` | Scroll up half page (enters scroll mode) |
+| `Shift+PgDn` | Scroll down half page                    |
+| `Shift+Home` | Go to top of history                     |
+| `Shift+End`  | Go to bottom (re-enables auto-scroll)    |
+| `Esc`        | Unfocus PTY                              |
+
+**Note:** Raw `PgUp`/`PgDn` are forwarded to the PTY application. Use `Shift+` versions for scrollback.
 
 **Scroll Modes:**
 
 - **Auto-scroll** (default): Always shows latest output, scrolls automatically
-- **Manual scroll**: PgUp enters this mode, shows scroll position in status line
-- Press `End` to return to auto-scroll
+- **Manual scroll**: Shift+PgUp enters this mode, shows scroll position in status line
+- Press `Shift+End` to return to auto-scroll
 
 **Status Line:**
 
-- Auto-scroll mode: `[PTY] TERM - PgUp:scroll Esc:unfocus`
-- Scroll mode: `[PTY SCROLL] TERM - 50/200 - End:auto Esc:unfocus`
+- Auto-scroll mode: `[PTY] TERM - Shift+PgUp:scroll Esc:unfocus`
+- Scroll mode: `[PTY SCROLL] TERM - 50/200 - Shift+End:auto Esc:unfocus`
 
 **Color Support:**
 
@@ -755,7 +757,7 @@ claude
 
 - Claude Code's full TUI running inside my-grid
 - Full color support for Claude's interface
-- Scrollback through Claude's responses (PgUp/PgDn)
+- Scrollback through Claude's responses (Shift+PgUp/PgDn)
 - Multiple PTY zones for parallel Claude sessions
 - README/docs visible alongside Claude
 
@@ -770,7 +772,7 @@ claude
 
 - Use `Esc` to unfocus PTY and navigate my-grid
 - Press `'c` to quickly jump back to Claude zone
-- Scrollback works - review Claude's previous responses with `PgUp`
+- Scrollback works - review Claude's previous responses with `Shift+PgUp`
 - Colors work - Claude's syntax highlighting displays correctly
 - Run bash commands in a separate PTY zone while Claude is running
 
