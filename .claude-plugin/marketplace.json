@@ -1,0 +1,19 @@
+{
+  "name": "my-grid",
+  "owner": {
+    "name": "jcaldwell-labs",
+    "email": "jcaldwell@example.com"
+  },
+  "metadata": {
+    "description": "my-grid ASCII canvas editor plugin for Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "grid",
+      "source": "../claude-plugin",
+      "description": "Spawn and control ASCII canvas editor in tmux for visual workspace organization",
+      "version": "0.1.0",
+      "strict": false
+    }
+  ]
+}
