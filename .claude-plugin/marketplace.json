@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "grid",
-      "source": "../claude-plugin",
+      "source": "./claude-plugin",
       "description": "Spawn and control ASCII canvas editor in tmux for visual workspace organization",
       "version": "0.1.0",
       "strict": false
