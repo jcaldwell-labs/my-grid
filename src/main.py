@@ -1553,6 +1553,8 @@ class Application:
 
     def _cmd_rect(self, args: list[str]) -> ModeResult:
         """Draw rectangle: rect WIDTH HEIGHT [CHAR]"""
+        from zones import get_border_chars
+
         if len(args) < 2:
             return ModeResult(message="Usage: rect WIDTH HEIGHT [char]")
         try:
@@ -1560,9 +1562,23 @@ class Application:
             char = args[2] if len(args) > 2 else None
             cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
             if char:
-                self.canvas.draw_rect(cx, cy, w, h, char, char, char)
+                # User specified custom char - use it for all
+                self.canvas.draw_rect(cx, cy, w, h, char, char, corner_char=char)
             else:
-                self.canvas.draw_rect(cx, cy, w, h)
+                # Use current border style
+                chars = get_border_chars()
+                self.canvas.draw_rect(
+                    cx,
+                    cy,
+                    w,
+                    h,
+                    h_char=chars["horiz"],
+                    v_char=chars["vert"],
+                    tl=chars["tl"],
+                    tr=chars["tr"],
+                    bl=chars["bl"],
+                    br=chars["br"],
+                )
             self.project.mark_dirty()
             return ModeResult(message=f"Drew {w}x{h} rectangle")
         except ValueError:

@@ -245,14 +245,37 @@ class Canvas:
         height: int,
         h_char: str = "-",
         v_char: str = "|",
-        corner_char: str = "+",
+        corner_char: str | None = None,
+        tl: str | None = None,
+        tr: str | None = None,
+        bl: str | None = None,
+        br: str | None = None,
     ) -> None:
-        """Draw a rectangle outline."""
+        """Draw a rectangle outline.
+
+        Args:
+            x, y: Top-left corner position
+            width, height: Rectangle dimensions
+            h_char: Horizontal edge character
+            v_char: Vertical edge character
+            corner_char: Single character for all corners (legacy)
+            tl, tr, bl, br: Individual corner characters (override corner_char)
+        """
+        # Determine corner characters
+        if tl is None:
+            tl = corner_char if corner_char else "+"
+        if tr is None:
+            tr = corner_char if corner_char else "+"
+        if bl is None:
+            bl = corner_char if corner_char else "+"
+        if br is None:
+            br = corner_char if corner_char else "+"
+
         # Corners
-        self.set(x, y, corner_char)
-        self.set(x + width - 1, y, corner_char)
-        self.set(x, y + height - 1, corner_char)
-        self.set(x + width - 1, y + height - 1, corner_char)
+        self.set(x, y, tl)
+        self.set(x + width - 1, y, tr)
+        self.set(x, y + height - 1, bl)
+        self.set(x + width - 1, y + height - 1, br)
 
         # Horizontal edges
         for cx in range(x + 1, x + width - 1):
