@@ -31,7 +31,18 @@ from ipc import GridIPCClient, MyGridError
 def cmd_spawn(args):
     """Spawn or reuse my-grid pane."""
     if not in_tmux():
-        print("Error: Not in tmux session. Run: tmux new -s grid", file=sys.stderr)
+        print("Error: Not in a tmux session.", file=sys.stderr)
+        print("", file=sys.stderr)
+        print(
+            "my-grid requires tmux to create a split pane alongside Claude Code.",
+            file=sys.stderr,
+        )
+        print("", file=sys.stderr)
+        print("To fix this:", file=sys.stderr)
+        print("  1. Exit Claude Code", file=sys.stderr)
+        print("  2. Start a tmux session:  tmux new -s claude", file=sys.stderr)
+        print("  3. Run Claude Code inside tmux:  claude", file=sys.stderr)
+        print("  4. Try /grid again", file=sys.stderr)
         sys.exit(1)
 
     try:
