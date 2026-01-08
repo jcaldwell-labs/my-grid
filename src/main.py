@@ -96,6 +96,9 @@ class Application:
         # Pager focus tracking
         self._focused_pager: str | None = None  # Name of focused PAGER zone
 
+        # Mouse drag tracking for visual selection
+        self._mouse_drag_start: tuple[int, int] | None = None  # (canvas_x, canvas_y)
+
         # API server components
         self.command_queue = CommandQueue()
         self.api_server: APIServer | None = None
@@ -456,6 +459,11 @@ class Application:
                 if key == curses.KEY_RESIZE:
                     continue
 
+                # Handle mouse events
+                if key == curses.KEY_MOUSE:
+                    self._handle_mouse_event()
+                    continue
+
                 # If PTY is focused, forward input to PTY
                 if self._focused_pty:
                     # DEBUG: Show key code for Enter debugging
@@ -740,6 +748,99 @@ class Application:
         success = self.pty_handler.send_input(self._focused_pty, data)
         if key == 10 or key == 13:  # Debug Enter specifically
             self._show_message(f"DEBUG: send_input returned {success}", frames=120)
+
+    def _handle_mouse_event(self) -> None:
+        """
+        Handle mouse events (clicks, drags, scroll wheel).
+
+        Converts screen coordinates to canvas coordinates and performs
+        the appropriate action:
+        - Left click: Move cursor to position
+        - Left drag: Enter visual selection mode
+        - Scroll up/down: Pan viewport
+        """
+        from modes import Selection
+
+        mouse = self.renderer.get_mouse()
+        if not mouse:
+            return
+
+        _id, screen_x, screen_y, _z, bstate = mouse
+
+        # Get terminal size to check if click is in canvas area
+        height, width = self.renderer.get_terminal_size()
+
+        # Status line is at the bottom - don't handle clicks there
+        if screen_y >= height - 1:
+            return
+
+        # Convert screen coordinates to canvas coordinates
+        canvas_x = self.viewport.x + screen_x
+        canvas_y = self.viewport.y + screen_y
+
+        # Handle scroll wheel (panning)
+        if bstate & curses.BUTTON4_PRESSED:  # Scroll up
+            self.viewport.pan(0, -3)  # Pan up 3 cells
+            return
+        if bstate & getattr(curses, "BUTTON5_PRESSED", 0x200000):  # Scroll down
+            self.viewport.pan(0, 3)  # Pan down 3 cells
+            return
+
+        # Handle left button release - end drag
+        if bstate & curses.BUTTON1_RELEASED:
+            if self._mouse_drag_start:
+                self._mouse_drag_start = None
+                # Selection stays active in VISUAL mode
+            return
+
+        # Handle left click/press
+        if bstate & (curses.BUTTON1_PRESSED | curses.BUTTON1_CLICKED):
+            # Check if clicking inside a PTY zone - focus it
+            zone = self.zone_manager.find_at(canvas_x, canvas_y)
+            if zone and zone.zone_type == ZoneType.PTY:
+                if self.pty_handler.is_active(zone.name):
+                    self._focused_pty = zone.name
+                    self._show_message(f"PTY focused: {zone.name}")
+                    return
+
+            # Start drag tracking for potential visual selection
+            if bstate & curses.BUTTON1_PRESSED:
+                self._mouse_drag_start = (canvas_x, canvas_y)
+
+            # Move cursor to clicked position
+            self.viewport.cursor.x = canvas_x
+            self.viewport.cursor.y = canvas_y
+
+            # If already in visual mode, update selection endpoint
+            if self.state_machine.mode == Mode.VISUAL and self.state_machine.selection:
+                self.state_machine.selection.update_cursor(canvas_x, canvas_y)
+            return
+
+        # Handle mouse motion (drag) - reported if REPORT_MOUSE_POSITION is enabled
+        # Check for motion during a drag
+        if self._mouse_drag_start:
+            start_x, start_y = self._mouse_drag_start
+
+            # Only enter visual mode if we've moved from the start position
+            if (canvas_x, canvas_y) != (start_x, start_y):
+                # Enter visual mode if not already
+                if self.state_machine.mode != Mode.VISUAL:
+                    # Create selection anchored at drag start
+                    self.state_machine.selection = Selection(
+                        anchor_x=start_x,
+                        anchor_y=start_y,
+                        cursor_x=canvas_x,
+                        cursor_y=canvas_y,
+                    )
+                    self.state_machine.set_mode(Mode.VISUAL)
+                    self._show_message("-- VISUAL (drag) --")
+                else:
+                    # Update selection endpoint
+                    self.state_machine.selection.update_cursor(canvas_x, canvas_y)
+
+                # Move cursor to current drag position
+                self.viewport.cursor.x = canvas_x
+                self.viewport.cursor.y = canvas_y
 
     def _handle_pty_scroll_keys(self, key: int) -> bool:
         """

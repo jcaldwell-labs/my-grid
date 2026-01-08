@@ -7,12 +7,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Import pygame to get real constants
 from pygame.locals import (
-    K_w, K_a, K_s, K_q, K_UP, K_DOWN, KMOD_CTRL, KMOD_SHIFT, KMOD_ALT
+    K_w,
+    K_a,
+    K_s,
+    K_q,
+    K_UP,
+    K_DOWN,
+    KMOD_CTRL,
+    KMOD_SHIFT,
+    KMOD_ALT,
 )
 
-from input import (
-    Action, KeyBinding, InputEvent, InputHandler
-)
+from input import Action, KeyBinding, InputEvent, InputHandler
 
 
 def test_action_enum():
@@ -33,11 +39,7 @@ def test_key_binding_simple_match():
 
 def test_key_binding_with_modifier():
     """Test key binding with required modifier."""
-    binding = KeyBinding(
-        key=K_s,
-        mods=KMOD_CTRL,
-        action=Action.SAVE
-    )
+    binding = KeyBinding(key=K_s, mods=KMOD_CTRL, action=Action.SAVE)
 
     # Must have Ctrl
     assert binding.matches(K_s, KMOD_CTRL)
@@ -50,11 +52,7 @@ def test_key_binding_with_modifier():
 
 def test_key_binding_multiple_modifiers():
     """Test binding requiring multiple modifiers."""
-    binding = KeyBinding(
-        key=K_s,
-        mods=KMOD_CTRL | KMOD_SHIFT,
-        action=Action.SAVE_AS
-    )
+    binding = KeyBinding(key=K_s, mods=KMOD_CTRL | KMOD_SHIFT, action=Action.SAVE_AS)
 
     # Must have both Ctrl and Shift
     assert binding.matches(K_s, KMOD_CTRL | KMOD_SHIFT)
@@ -71,9 +69,9 @@ def test_input_event_creation():
     assert event.char is None
 
     # Character event
-    event = InputEvent(char='a', raw_key=K_a)
+    event = InputEvent(char="a", raw_key=K_a)
     assert event.action == Action.NONE
-    assert event.char == 'a'
+    assert event.char == "a"
 
     # Mouse event
     event = InputEvent(mouse_pos=(100, 200), mouse_button=1)
@@ -146,11 +144,7 @@ def test_format_binding_simple():
 def test_format_binding_with_mods():
     """Test formatting binding with modifiers."""
     # We can't fully test without pygame init, but we test the logic exists
-    binding = KeyBinding(
-        key=K_s,
-        mods=KMOD_CTRL | KMOD_SHIFT,
-        action=Action.SAVE_AS
-    )
+    binding = KeyBinding(key=K_s, mods=KMOD_CTRL | KMOD_SHIFT, action=Action.SAVE_AS)
 
     # Verify binding created correctly
     assert binding.mods == KMOD_CTRL | KMOD_SHIFT
@@ -190,6 +184,61 @@ def test_binding_priority():
         if binding.matches(K_w, KMOD_SHIFT):
             assert binding.action == Action.MOVE_UP_FAST
             break
+
+
+# =============================================================================
+# Mouse Support Tests
+# =============================================================================
+
+
+def test_mouse_action_enums_exist():
+    """Test that mouse-related Action enums exist."""
+    # These actions are used by the mouse handler in main.py
+    assert hasattr(Action, "MOUSE_CLICK")
+    assert hasattr(Action, "MOUSE_DRAG")
+    assert hasattr(Action, "MOUSE_RELEASE")
+    assert hasattr(Action, "SCROLL_UP")
+    assert hasattr(Action, "SCROLL_DOWN")
+
+    # Ensure they are distinct values
+    mouse_actions = [
+        Action.MOUSE_CLICK,
+        Action.MOUSE_DRAG,
+        Action.MOUSE_RELEASE,
+        Action.SCROLL_UP,
+        Action.SCROLL_DOWN,
+    ]
+    assert len(set(mouse_actions)) == len(mouse_actions)
+
+
+def test_input_event_mouse_click():
+    """Test InputEvent with mouse click data."""
+    event = InputEvent(
+        action=Action.MOUSE_CLICK,
+        mouse_pos=(50, 100),
+        mouse_button=1,
+    )
+
+    assert event.action == Action.MOUSE_CLICK
+    assert event.mouse_pos == (50, 100)
+    assert event.mouse_button == 1
+    assert event.char is None
+
+
+def test_input_event_scroll_up():
+    """Test InputEvent for scroll up action."""
+    event = InputEvent(action=Action.SCROLL_UP)
+
+    assert event.action == Action.SCROLL_UP
+    assert event.mouse_pos is None
+
+
+def test_input_event_scroll_down():
+    """Test InputEvent for scroll down action."""
+    event = InputEvent(action=Action.SCROLL_DOWN)
+
+    assert event.action == Action.SCROLL_DOWN
+    assert event.mouse_pos is None
 
 
 if __name__ == "__main__":

@@ -506,6 +506,27 @@ zones:
 
 ---
 
+## Mouse Support
+
+Mouse input is supported in terminals that provide mouse event reporting.
+
+| Action       | Effect                                  |
+| ------------ | --------------------------------------- |
+| Left click   | Move cursor to clicked position         |
+| Left drag    | Start visual selection (drag to select) |
+| Scroll up    | Pan viewport up 3 cells                 |
+| Scroll down  | Pan viewport down 3 cells               |
+| Click on PTY | Focus the PTY zone for keyboard input   |
+
+**Notes:**
+
+- Clicking while in VISUAL mode extends/updates the selection endpoint
+- Drag-to-select automatically enters VISUAL mode with anchor at drag start
+- Press `Esc` to cancel visual selection or unfocus PTY zones
+- Mouse support depends on terminal capabilities (works in most modern terminals)
+
+---
+
 ## Project File Format (JSON)
 
 ```json

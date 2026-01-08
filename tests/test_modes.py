@@ -665,6 +665,71 @@ class TestVisualMode:
         assert result.mode_changed
         assert self.sm.mode == Mode.NAV
 
+    # Mouse drag selection tests (Issue #13)
+    def test_mouse_drag_selection_programmatic(self):
+        """Test creating selection via programmatic approach (simulates mouse drag)."""
+        # Simulates what _handle_mouse_event does when drag starts
+        start_x, start_y = 10, 20
+        end_x, end_y = 30, 35
+
+        # Create selection anchored at drag start
+        self.sm.selection = Selection(
+            anchor_x=start_x,
+            anchor_y=start_y,
+            cursor_x=start_x,
+            cursor_y=start_y,
+        )
+        self.sm.set_mode(Mode.VISUAL)
+
+        assert self.sm.mode == Mode.VISUAL
+        assert self.sm.selection.width == 1
+        assert self.sm.selection.height == 1
+
+        # Simulate drag movement - update cursor position
+        self.sm.selection.update_cursor(end_x, end_y)
+
+        # Selection should span from start to end
+        assert self.sm.selection.anchor_x == start_x
+        assert self.sm.selection.anchor_y == start_y
+        assert self.sm.selection.cursor_x == end_x
+        assert self.sm.selection.cursor_y == end_y
+        assert self.sm.selection.width == 21  # 30 - 10 + 1
+        assert self.sm.selection.height == 16  # 35 - 20 + 1
+
+    def test_mouse_drag_selection_yank(self):
+        """Test yanking a mouse-drag created selection."""
+        # Create selection via programmatic approach (like mouse drag)
+        self.sm.selection = Selection(anchor_x=5, anchor_y=5, cursor_x=15, cursor_y=10)
+        self.sm.set_mode(Mode.VISUAL)
+
+        # Yank the selection
+        result = self.sm.process(char_event("y"))
+
+        # Should return to NAV mode with yank command
+        assert self.sm.mode == Mode.NAV
+        assert self.sm.selection is None
+        assert "yank_selection" in result.command
+        assert "5 5 11 6" in result.command  # x1=5, y1=5, w=11, h=6
+
+    def test_mouse_click_updates_existing_selection(self):
+        """Test that clicking while in visual mode updates selection endpoint."""
+        # Start with a selection
+        self.viewport.cursor.set(10, 10)
+        self.sm.process(char_event("v"))  # Enter VISUAL
+
+        # Simulate click at different position - programmatically update selection
+        new_x, new_y = 25, 30
+        self.sm.selection.update_cursor(new_x, new_y)
+        self.viewport.cursor.set(new_x, new_y)
+
+        # Selection should update to new cursor position
+        assert self.sm.selection.anchor_x == 10  # Anchor unchanged
+        assert self.sm.selection.anchor_y == 10
+        assert self.sm.selection.cursor_x == 25
+        assert self.sm.selection.cursor_y == 30
+        assert self.sm.selection.width == 16  # 25 - 10 + 1
+        assert self.sm.selection.height == 21  # 30 - 10 + 1
+
 
 class TestBookmarkManager:
     """Tests for BookmarkManager class."""

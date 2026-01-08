@@ -91,6 +91,13 @@ class Renderer:
         self.stdscr.keypad(True)
         self.stdscr.nodelay(False)  # Blocking input by default
 
+        # Enable mouse events
+        curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+        # Store whether mouse is supported
+        self._mouse_supported = (
+            curses.has_mouse() if hasattr(curses, "has_mouse") else True
+        )
+
         # Color pair cache: (fg, bg) -> pair_number
         self._color_pair_cache: dict[tuple[int, int], int] = {}
         self._next_color_pair = 11  # Start after reserved pairs
@@ -552,6 +559,18 @@ class Renderer:
     def get_input(self) -> int:
         """Get a single keypress. Returns curses key code."""
         return self.stdscr.getch()
+
+    def get_mouse(self) -> tuple[int, int, int, int, int] | None:
+        """
+        Get mouse event details after KEY_MOUSE is received.
+
+        Returns:
+            Tuple of (id, x, y, z, bstate) or None if error
+        """
+        try:
+            return curses.getmouse()
+        except curses.error:
+            return None
 
     def get_string_input(self, prompt: str, y: int = -1) -> str:
         """

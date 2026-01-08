@@ -66,6 +66,13 @@ class Action(Enum):
     QUIT = auto()
     HELP = auto()
 
+    # Mouse actions
+    MOUSE_CLICK = auto()
+    MOUSE_DRAG = auto()
+    MOUSE_RELEASE = auto()
+    SCROLL_UP = auto()
+    SCROLL_DOWN = auto()
+
     # Special
     NONE = auto()
 
