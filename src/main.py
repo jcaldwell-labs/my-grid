@@ -2177,6 +2177,44 @@ class Application:
             except (ValueError, IndexError) as e:
                 return ModeResult(message=f"Invalid arguments: {e}")
 
+        # :zone http NAME W H URL [INTERVAL]
+        elif subcmd == "http":
+            if len(args) < 5:
+                return ModeResult(message="Usage: zone http NAME W H URL [interval]")
+            name = args[1]
+            try:
+                w, h = int(args[2]), int(args[3])
+                url = args[4]
+                interval = None
+
+                # Parse optional interval
+                if len(args) > 5:
+                    interval_spec = args[5]
+                    if interval_spec.endswith("s"):
+                        interval = float(interval_spec[:-1])
+                    elif interval_spec.endswith("m"):
+                        interval = float(interval_spec[:-1]) * 60
+                    else:
+                        interval = float(interval_spec)
+
+                x = self.viewport.cursor.x
+                y = self.viewport.cursor.y
+
+                zone = self.zone_manager.create_http(name, x, y, w, h, url, interval)
+                # Execute immediately
+                self.zone_executor.execute_http(zone)
+                # Start background refresh if interval specified
+                if interval:
+                    self.zone_executor.start_http_watch(zone)
+                self.project.mark_dirty()
+
+                msg = f"Created HTTP zone '{name}' - {len(zone.content_lines)} lines"
+                if interval:
+                    msg += f" (refresh: {interval}s)"
+                return ModeResult(message=msg)
+            except (ValueError, IndexError) as e:
+                return ModeResult(message=f"Invalid arguments: {e}")
+
         # :zone refresh NAME
         elif subcmd == "refresh":
             if len(args) < 2:

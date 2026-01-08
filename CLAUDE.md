@@ -192,6 +192,7 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 | STATIC    | Plain text region (default)       | `:zone create NAME X Y W H`                       |
 | PIPE      | One-shot command output           | `:zone pipe NAME W H CMD`                         |
 | WATCH     | Periodic or event-driven refresh  | `:zone watch NAME W H (INTERVAL\|watch:PATH) CMD` |
+| HTTP      | Fetch URL content                 | `:zone http NAME W H URL [INTERVAL]`              |
 | PTY       | Live terminal session (Unix)      | `:zone pty NAME W H [SHELL]`                      |
 | PAGER     | Paginated file viewer with colors | `:zone pager NAME W H FILE`                       |
 | FIFO      | Named pipe listener (Unix)        | `:zone fifo NAME W H PATH`                        |
@@ -207,6 +208,8 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 | `:zone pipe NAME W H CMD`             | Create pipe zone, execute command once          |
 | `:zone watch NAME W H 5s CMD`         | Create watch zone, refresh every 5 seconds      |
 | `:zone watch NAME W H watch:PATH CMD` | Create watch zone triggered by file changes     |
+| `:zone http NAME W H URL`             | Create HTTP zone, fetch URL once                |
+| `:zone http NAME W H URL 30s`         | Create HTTP zone, refresh every 30 seconds      |
 | `:zone pty NAME W H [SHELL]`          | Create PTY zone with live terminal (Unix)       |
 | `:zone fifo NAME W H PATH`            | Create FIFO zone listening on named pipe (Unix) |
 | `:zone socket NAME W H PORT`          | Create socket zone listening on TCP port        |
@@ -241,6 +244,15 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 # One-shot command output
 :zone pipe TREE 60 20 tree -L 2
 
+# HTTP zone - fetch weather (one-shot)
+:zone http WEATHER 40 5 'https://wttr.in/NYC?format=3'
+
+# HTTP zone - monitor API endpoint, refresh every 30 seconds
+:zone http STATUS 60 20 'https://api.example.com/health' 30s
+
+# HTTP zone - fetch JSON data
+:zone http API 50 15 'https://httpbin.org/get'
+
 # Static zone for notes
 :zone create NOTES 0 0 40 20
 
@@ -262,7 +274,7 @@ Zones are named rectangular regions that can contain dynamic content. Inspired b
 # Then from another terminal: echo "Hello" | nc localhost 9876
 ```
 
-Zones display with borders showing type indicator: `[P]` for pipe, `[W]` for watch, `[T]` for PTY, `[R]` for pager (reader), `[F]` for FIFO, `[S]` for socket, `[C]` for clipboard.
+Zones display with borders showing type indicator: `[P]` for pipe, `[W]` for watch, `[H]` for HTTP, `[T]` for PTY, `[R]` for pager (reader), `[F]` for FIFO, `[S]` for socket, `[C]` for clipboard.
 
 ### PTY Focus Model (Unix/WSL only)
 

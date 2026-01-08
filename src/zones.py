@@ -334,6 +334,7 @@ class ZoneType(Enum):
     STATIC = "static"  # Plain text region (default)
     PIPE = "pipe"  # One-shot command output
     WATCH = "watch"  # Periodic refresh command
+    HTTP = "http"  # Fetch URL content
     PTY = "pty"  # Live terminal session
     FIFO = "fifo"  # Named pipe listener
     SOCKET = "socket"  # Network port listener
@@ -361,6 +362,9 @@ class ZoneConfig:
     # For FIFO/SOCKET zones
     path: str | None = None  # FIFO path or "host:port"
     port: int | None = None  # For SOCKET
+
+    # For HTTP zones
+    url: str | None = None  # URL to fetch
 
     # For PAGER zones
     file_path: str | None = None  # Source file to display
@@ -400,6 +404,8 @@ class ZoneConfig:
             data["path"] = self.path
         if self.port is not None:
             data["port"] = self.port
+        if self.url:
+            data["url"] = self.url
         # PAGER fields
         if self.file_path:
             data["file_path"] = self.file_path
@@ -431,6 +437,7 @@ class ZoneConfig:
             shell=data.get("shell", "/bin/bash"),
             path=data.get("path"),
             port=data.get("port"),
+            url=data.get("url"),
             # PAGER fields
             file_path=data.get("file_path"),
             renderer=data.get("renderer", "auto"),
@@ -510,6 +517,7 @@ class Zone:
             ZoneType.STATIC: "S",
             ZoneType.PIPE: "P",
             ZoneType.WATCH: "W",
+            ZoneType.HTTP: "H",
             ZoneType.PTY: "T",
             ZoneType.FIFO: "F",
             ZoneType.SOCKET: "N",
@@ -745,7 +753,10 @@ class Zone:
         header = f"[{self.type_indicator()}] {self.name}"
         if self.config.paused:
             header += " (paused)"
-        elif self.config.zone_type == ZoneType.WATCH and self.config.refresh_interval:
+        elif (
+            self.config.zone_type in (ZoneType.WATCH, ZoneType.HTTP)
+            and self.config.refresh_interval
+        ):
             header += f" ({self.config.refresh_interval}s)"
 
         # Draw top left corner
@@ -969,6 +980,34 @@ class ZoneManager:
         config = ZoneConfig(
             zone_type=ZoneType.WATCH,
             command=command,
+            refresh_interval=interval,
+        )
+        return self.create(name, x, y, width, height, bookmark=bookmark, config=config)
+
+    def create_http(
+        self,
+        name: str,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        url: str,
+        interval: float | None = None,
+        bookmark: str | None = None,
+    ) -> Zone:
+        """Create an HTTP zone that fetches URL content.
+
+        Args:
+            name: Zone name
+            x, y: Position
+            width, height: Dimensions
+            url: URL to fetch
+            interval: Optional refresh interval in seconds (None = one-shot)
+            bookmark: Optional bookmark key
+        """
+        config = ZoneConfig(
+            zone_type=ZoneType.HTTP,
+            url=url,
             refresh_interval=interval,
         )
         return self.create(name, x, y, width, height, bookmark=bookmark, config=config)
@@ -1488,14 +1527,58 @@ class ZoneExecutor:
             zone.set_content([f"[Error: {e}]"])
             return False
 
+    def execute_http(self, zone: Zone, timeout: int = 30) -> bool:
+        """
+        Fetch URL content for an HTTP zone and update content.
+
+        Returns True on success, False on error.
+        """
+        if zone.config.zone_type != ZoneType.HTTP:
+            return False
+        if not zone.config.url:
+            zone.set_content(["[No URL configured]"])
+            return False
+
+        try:
+            import urllib.request
+            import urllib.error
+
+            request = urllib.request.Request(
+                zone.config.url,
+                headers={"User-Agent": "my-grid/0.1"},
+            )
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                content = response.read().decode("utf-8", errors="replace")
+                lines = content.split("\n")
+                # Remove trailing empty lines
+                while lines and not lines[-1]:
+                    lines.pop()
+                zone.set_content(lines)
+                return True
+
+        except urllib.error.HTTPError as e:
+            zone.set_content([f"[HTTP {e.code}: {e.reason}]"])
+            return False
+        except urllib.error.URLError as e:
+            zone.set_content([f"[URL Error: {e.reason}]"])
+            return False
+        except TimeoutError:
+            zone.set_content([f"[Request timed out after {timeout}s]"])
+            return False
+        except Exception as e:
+            zone.set_content([f"[Error: {e}]"])
+            return False
+
     def refresh_zone(self, name: str) -> bool:
-        """Manually refresh a PIPE or WATCH zone."""
+        """Manually refresh a PIPE, WATCH, or HTTP zone."""
         zone = self.zone_manager.get(name)
         if zone is None:
             return False
 
         if zone.config.zone_type in (ZoneType.PIPE, ZoneType.WATCH):
             return self.execute_pipe(zone)
+        if zone.config.zone_type == ZoneType.HTTP:
+            return self.execute_http(zone)
         return False
 
     def execute_with_template(self, zone: Zone, timeout: int = 30) -> bool:
@@ -1594,24 +1677,49 @@ class ZoneExecutor:
         thread.start()
 
     def stop_watch(self, name: str) -> None:
-        """Stop background refresh for a WATCH zone."""
+        """Stop background refresh for a WATCH or HTTP zone."""
         key = name.lower()
 
         with self._lock:
             self._stop_existing_watcher(key)
 
+    def start_http_watch(self, zone: Zone) -> None:
+        """Start background refresh for an HTTP zone with interval."""
+        if zone.config.zone_type != ZoneType.HTTP:
+            return
+        if zone.config.refresh_interval is None:
+            return  # One-shot HTTP zone, no background refresh needed
+
+        key = zone.name.lower()
+
+        with self._lock:
+            # Stop any existing watcher first
+            self._stop_existing_watcher(key)
+
+            stop_event = threading.Event()
+            self._stop_events[key] = stop_event
+
+            thread = threading.Thread(
+                target=self._http_watch_loop,
+                args=(zone, stop_event),
+                daemon=True,
+                name=f"http-{key}",
+            )
+            self._watch_threads[key] = thread
+            thread.start()
+
     def pause_zone(self, name: str) -> bool:
-        """Pause a WATCH zone refresh."""
+        """Pause a WATCH or HTTP zone refresh."""
         zone = self.zone_manager.get(name)
-        if zone and zone.config.zone_type == ZoneType.WATCH:
+        if zone and zone.config.zone_type in (ZoneType.WATCH, ZoneType.HTTP):
             zone.config.paused = True
             return True
         return False
 
     def resume_zone(self, name: str) -> bool:
-        """Resume a WATCH zone refresh."""
+        """Resume a WATCH or HTTP zone refresh."""
         zone = self.zone_manager.get(name)
-        if zone and zone.config.zone_type == ZoneType.WATCH:
+        if zone and zone.config.zone_type in (ZoneType.WATCH, ZoneType.HTTP):
             zone.config.paused = False
             return True
         return False
@@ -1634,6 +1742,25 @@ class ZoneExecutor:
 
             # Execute command
             self.execute_pipe(zone)
+
+    def _http_watch_loop(self, zone: Zone, stop_event: threading.Event) -> None:
+        """Background loop for HTTP zone refresh."""
+        interval = zone.config.refresh_interval or 30.0
+
+        # Initial execution
+        self.execute_http(zone)
+
+        while not stop_event.is_set():
+            # Wait for interval or stop
+            if stop_event.wait(timeout=interval):
+                break
+
+            # Skip if paused
+            if zone.config.paused:
+                continue
+
+            # Fetch URL
+            self.execute_http(zone)
 
     def stop_all(self) -> None:
         """Stop all watch threads and file watchers."""

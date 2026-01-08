@@ -1801,5 +1801,126 @@ class TestZoneExecutorFileWatch:
             executor.stop_all()
 
 
+class TestHTTPZone:
+    """Test HTTP zone functionality."""
+
+    def test_create_http_zone(self):
+        """Test creating an HTTP zone."""
+        from src.zones import ZoneManager, ZoneType
+
+        manager = ZoneManager()
+        zone = manager.create_http("API", 0, 0, 60, 20, "https://example.com")
+
+        assert zone.name == "API"
+        assert zone.config.zone_type == ZoneType.HTTP
+        assert zone.config.url == "https://example.com"
+        assert zone.config.refresh_interval is None
+
+    def test_create_http_zone_with_interval(self):
+        """Test creating an HTTP zone with refresh interval."""
+        from src.zones import ZoneManager, ZoneType
+
+        manager = ZoneManager()
+        zone = manager.create_http(
+            "STATUS", 0, 0, 40, 10, "https://api.example.com/status", interval=30.0
+        )
+
+        assert zone.config.zone_type == ZoneType.HTTP
+        assert zone.config.url == "https://api.example.com/status"
+        assert zone.config.refresh_interval == 30.0
+
+    def test_http_zone_type_indicator(self):
+        """Test HTTP zone has correct type indicator."""
+        from src.zones import ZoneManager
+
+        manager = ZoneManager()
+        zone = manager.create_http("TEST", 0, 0, 40, 10, "https://example.com")
+
+        assert zone.type_indicator() == "H"
+
+    def test_http_zone_config_serialization(self):
+        """Test HTTP zone config serializes correctly."""
+        from src.zones import ZoneConfig, ZoneType
+
+        config = ZoneConfig(
+            zone_type=ZoneType.HTTP,
+            url="https://example.com/api",
+            refresh_interval=60.0,
+        )
+
+        data = config.to_dict()
+        assert data["zone_type"] == "http"
+        assert data["url"] == "https://example.com/api"
+        assert data["refresh_interval"] == 60.0
+
+        # Deserialize
+        restored = ZoneConfig.from_dict(data)
+        assert restored.zone_type == ZoneType.HTTP
+        assert restored.url == "https://example.com/api"
+        assert restored.refresh_interval == 60.0
+
+    def test_execute_http_no_url(self):
+        """Test execute_http with missing URL."""
+        from src.zones import ZoneManager, ZoneExecutor, ZoneConfig, ZoneType
+
+        manager = ZoneManager()
+        executor = ZoneExecutor(manager)
+
+        # Create zone without URL
+        config = ZoneConfig(zone_type=ZoneType.HTTP)
+        zone = manager.create("NO_URL", 0, 0, 40, 10, config=config)
+
+        result = executor.execute_http(zone)
+        assert result is False
+        assert "[No URL configured]" in zone.content_lines[0]
+
+    def test_execute_http_invalid_url(self):
+        """Test execute_http with invalid URL."""
+        from src.zones import ZoneManager, ZoneExecutor
+
+        manager = ZoneManager()
+        executor = ZoneExecutor(manager)
+
+        zone = manager.create_http("BAD", 0, 0, 40, 10, "not-a-valid-url")
+        result = executor.execute_http(zone)
+
+        assert result is False
+        assert "[" in zone.content_lines[0]  # Error message in brackets
+
+    def test_refresh_zone_http(self):
+        """Test refresh_zone works for HTTP zones."""
+        from src.zones import ZoneManager, ZoneExecutor
+
+        manager = ZoneManager()
+        executor = ZoneExecutor(manager)
+
+        # Use invalid URL to test refresh path without network
+        zone = manager.create_http("TEST", 0, 0, 40, 10, "http://invalid.local")
+        result = executor.refresh_zone("TEST")
+
+        # Should return False due to network error, but method should be called
+        assert result is False
+        assert len(zone.content_lines) > 0
+
+    def test_pause_resume_http_zone(self):
+        """Test pause/resume works for HTTP zones."""
+        from src.zones import ZoneManager, ZoneExecutor
+
+        manager = ZoneManager()
+        executor = ZoneExecutor(manager)
+
+        zone = manager.create_http(
+            "API", 0, 0, 40, 10, "https://example.com", interval=10.0
+        )
+
+        # Pause
+        assert executor.pause_zone("API") is True
+        assert zone.config.paused is True
+
+        # Resume
+        assert executor.resume_zone("API") is True
+        assert zone.config.paused is False
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
