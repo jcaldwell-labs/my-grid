@@ -1217,9 +1217,15 @@ class ZoneManager:
 # FILE WATCHER - Event-driven file monitoring
 # =============================================================================
 
+import logging
+import os
 import subprocess
+import sys
 import threading
 import time
+
+# Logger for FileWatcher diagnostics (debug level for troubleshooting)
+_fw_logger = logging.getLogger(__name__ + ".FileWatcher")
 
 # Try to import inotify_simple for Linux file watching
 try:
@@ -1321,8 +1327,6 @@ class FileWatcher:
         if not INOTIFY_AVAILABLE:
             return False
         # inotify works on Linux/WSL
-        import sys
-
         return sys.platform.startswith("linux")
 
     def _trigger_callback(self) -> None:
@@ -1332,15 +1336,14 @@ class FileWatcher:
             self._last_callback_time = now
             try:
                 self._callback()
-            except Exception:
-                pass  # Callback errors shouldn't stop the watcher
+            except Exception as e:
+                # Log at debug level - callback errors shouldn't stop the watcher
+                _fw_logger.debug("Callback error for %s: %s", self._path, e)
 
     def _watch_loop_polling(self) -> None:
         """Watch using mtime polling (cross-platform fallback)."""
         # Initialize mtime
         try:
-            import os
-
             if os.path.exists(self._path):
                 self._last_mtime = os.path.getmtime(self._path)
         except OSError:
@@ -1348,8 +1351,6 @@ class FileWatcher:
 
         while not self._stop_event.is_set():
             try:
-                import os
-
                 if os.path.exists(self._path):
                     current_mtime = os.path.getmtime(self._path)
                     if current_mtime > self._last_mtime:
@@ -1358,16 +1359,14 @@ class FileWatcher:
                 else:
                     # File doesn't exist - reset mtime so we detect creation
                     self._last_mtime = 0.0
-            except OSError:
-                pass  # File may be temporarily inaccessible
+            except OSError as e:
+                _fw_logger.debug("Polling error for %s: %s", self._path, e)
 
             # Wait for next poll interval or stop signal
             self._stop_event.wait(timeout=self._poll_interval)
 
     def _watch_loop_inotify(self) -> None:
         """Watch using inotify (Linux-only, more efficient)."""
-        import os
-
         try:
             self._inotify = inotify_simple.INotify()
 
@@ -1410,8 +1409,11 @@ class FileWatcher:
                         # Watching the actual file/directory - trigger on any event
                         self._trigger_callback()
 
-        except Exception:
-            # Fall back to polling if inotify fails
+        except Exception as e:
+            # Log fallback and reason, then switch to polling
+            _fw_logger.debug(
+                "inotify failed for %s (%s), falling back to polling", self._path, e
+            )
             self._watch_loop_polling()
         finally:
             if self._inotify is not None:

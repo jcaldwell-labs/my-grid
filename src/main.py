@@ -9,6 +9,7 @@ import argparse
 import curses
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -2138,8 +2139,6 @@ class Application:
                         return ModeResult(message="Missing file path after 'watch:'")
 
                     # Expand ~ and resolve relative paths
-                    import os
-
                     watch_path = os.path.expanduser(watch_path)
                     if not os.path.isabs(watch_path):
                         watch_path = os.path.abspath(watch_path)
@@ -2317,9 +2316,7 @@ class Application:
 
         # :zone fifo NAME W H PATH
         elif subcmd == "fifo":
-            import os as os_check
-
-            if os_check.name == "nt":
+            if os.name == "nt":
                 return ModeResult(
                     message="FIFO not available on Windows (requires Unix)"
                 )
@@ -2421,8 +2418,6 @@ class Application:
             y = self.viewport.cursor.y
 
             # Resolve relative paths
-            import os
-
             if not os.path.isabs(file_path):
                 file_path = os.path.abspath(file_path)
 

@@ -1,6 +1,6 @@
 {
   "name": "grid",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Spawn and control ASCII canvas editor in tmux for visual workspace organization",
   "author": {
     "name": "jcaldwell-labs"
@@ -8,7 +8,15 @@
   "homepage": "https://github.com/jcaldwell-labs/my-grid",
   "repository": "https://github.com/jcaldwell-labs/my-grid",
   "license": "MIT",
-  "keywords": ["ascii", "canvas", "terminal", "tmux", "visualization", "spatial-workspace", "zones"],
+  "keywords": [
+    "ascii",
+    "canvas",
+    "terminal",
+    "tmux",
+    "visualization",
+    "spatial-workspace",
+    "zones"
+  ],
   "commands": "./commands",
   "skills": "./skills"
 }
