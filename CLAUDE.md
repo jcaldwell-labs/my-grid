@@ -646,6 +646,7 @@ ls -la | ./scripts/mygrid-pipe 0 0
 ### Additional Resources
 
 - **[API Scripting Guide](docs/guides/api-scripting.md)** - Full documentation with patterns
+- **[Notepad++ Integration](docs/guides/notepadpp-integration.md)** - Send text from Notepad++ to canvas
 - **[scripts/](scripts/)** - Ready-to-use Python and Bash scripts
 - **[examples/music-organization/](examples/music-organization/)** - Real-world automation example
 

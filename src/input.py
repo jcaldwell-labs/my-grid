@@ -13,6 +13,7 @@ from enum import Enum, auto
 
 class Action(Enum):
     """Editor actions that can be triggered by input."""
+
     # Navigation
     MOVE_UP = auto()
     MOVE_DOWN = auto()
@@ -72,8 +73,9 @@ class Action(Enum):
 @dataclass
 class KeyBinding:
     """A single key binding."""
-    key: int                    # pygame key constant
-    mods: int = 0               # Modifier flags (KMOD_CTRL, etc.)
+
+    key: int  # pygame key constant
+    mods: int = 0  # Modifier flags (KMOD_CTRL, etc.)
     action: Action = Action.NONE
 
     def matches(self, key: int, mods: int) -> bool:
@@ -94,8 +96,9 @@ class KeyBinding:
 @dataclass
 class InputEvent:
     """Processed input event."""
+
     action: Action = Action.NONE
-    char: str | None = None     # Character typed (for edit mode)
+    char: str | None = None  # Character typed (for edit mode)
     mouse_pos: tuple[int, int] | None = None
     mouse_button: int | None = None
     raw_key: int | None = None
@@ -110,12 +113,13 @@ class InputHandler:
     Handles keyboard and mouse input with configurable key bindings.
     Runs in "headless" mode - pygame handles input but not display.
     """
+
     bindings: list[KeyBinding] = field(default_factory=list)
     _initialized: bool = field(default=False, repr=False)
 
     # Key repeat settings
-    repeat_delay: int = 300     # ms before repeat starts
-    repeat_interval: int = 30   # ms between repeats
+    repeat_delay: int = 300  # ms before repeat starts
+    repeat_interval: int = 30  # ms between repeats
 
     def __post_init__(self):
         if not self.bindings:
@@ -163,10 +167,9 @@ class InputHandler:
                     events.append(input_event)
 
             elif event.type == MOUSEBUTTONDOWN:
-                events.append(InputEvent(
-                    mouse_pos=event.pos,
-                    mouse_button=event.button
-                ))
+                events.append(
+                    InputEvent(mouse_pos=event.pos, mouse_button=event.button)
+                )
 
             elif event.type == MOUSEMOTION:
                 # Could track mouse position if needed
@@ -197,24 +200,23 @@ class InputHandler:
         key = event.key
         mods = event.mod
 
+        # Get character if available (needed for EDIT/SEARCH modes)
+        char = None
+        if event.unicode and len(event.unicode) == 1:
+            if event.unicode.isprintable():
+                char = event.unicode
+
         # Check for bound actions
         for binding in self.bindings:
             if binding.matches(key, mods):
+                # Include char so modes like SEARCH can use it
                 return InputEvent(
-                    action=binding.action,
-                    raw_key=key,
-                    mods=mods
+                    action=binding.action, char=char, raw_key=key, mods=mods
                 )
 
-        # Handle printable characters for edit mode
-        if event.unicode and len(event.unicode) == 1:
-            char = event.unicode
-            if char.isprintable():
-                return InputEvent(
-                    char=char,
-                    raw_key=key,
-                    mods=mods
-                )
+        # No binding matched - return character event
+        if char:
+            return InputEvent(char=char, raw_key=key, mods=mods)
 
         # Return raw key event
         return InputEvent(raw_key=key, mods=mods)
@@ -227,63 +229,52 @@ class InputHandler:
             KeyBinding(K_s, 0, Action.MOVE_DOWN),
             KeyBinding(K_a, 0, Action.MOVE_LEFT),
             KeyBinding(K_d, 0, Action.MOVE_RIGHT),
-
             # Navigation - Arrows
             KeyBinding(K_UP, 0, Action.MOVE_UP),
             KeyBinding(K_DOWN, 0, Action.MOVE_DOWN),
             KeyBinding(K_LEFT, 0, Action.MOVE_LEFT),
             KeyBinding(K_RIGHT, 0, Action.MOVE_RIGHT),
-
             # Fast navigation - Shift + WASD
             KeyBinding(K_w, KMOD_SHIFT, Action.MOVE_UP_FAST),
             KeyBinding(K_s, KMOD_SHIFT, Action.MOVE_DOWN_FAST),
             KeyBinding(K_a, KMOD_SHIFT, Action.MOVE_LEFT_FAST),
             KeyBinding(K_d, KMOD_SHIFT, Action.MOVE_RIGHT_FAST),
-
             # Fast navigation - Shift + Arrows
             KeyBinding(K_UP, KMOD_SHIFT, Action.MOVE_UP_FAST),
             KeyBinding(K_DOWN, KMOD_SHIFT, Action.MOVE_DOWN_FAST),
             KeyBinding(K_LEFT, KMOD_SHIFT, Action.MOVE_LEFT_FAST),
             KeyBinding(K_RIGHT, KMOD_SHIFT, Action.MOVE_RIGHT_FAST),
-
             # Viewport panning - Ctrl + Arrows
             KeyBinding(K_UP, KMOD_CTRL, Action.PAN_UP),
             KeyBinding(K_DOWN, KMOD_CTRL, Action.PAN_DOWN),
             KeyBinding(K_LEFT, KMOD_CTRL, Action.PAN_LEFT),
             KeyBinding(K_RIGHT, KMOD_CTRL, Action.PAN_RIGHT),
-
             # Centering
             KeyBinding(K_c, KMOD_CTRL, Action.CENTER_CURSOR),
             KeyBinding(K_o, KMOD_CTRL, Action.CENTER_ORIGIN),
-
             # Mode switching
             KeyBinding(K_i, 0, Action.ENTER_EDIT_MODE),
             KeyBinding(K_ESCAPE, 0, Action.EXIT_MODE),
             KeyBinding(K_p, 0, Action.TOGGLE_PAN_MODE),
             KeyBinding(K_SEMICOLON, KMOD_SHIFT, Action.ENTER_COMMAND_MODE),  # :
-            KeyBinding(K_SLASH, 0, Action.ENTER_COMMAND_MODE),
-
+            # Note: / handled as character in modes.py to enter SEARCH mode
             # Grid toggles
             KeyBinding(K_g, 0, Action.TOGGLE_GRID_MAJOR),
             KeyBinding(K_g, KMOD_SHIFT, Action.TOGGLE_GRID_MINOR),
             KeyBinding(K_0, 0, Action.TOGGLE_GRID_ORIGIN),
-
             # Editing
             KeyBinding(K_DELETE, 0, Action.DELETE_CHAR),
             KeyBinding(K_BACKSPACE, 0, Action.BACKSPACE),
             KeyBinding(K_RETURN, 0, Action.NEWLINE),
             KeyBinding(K_KP_ENTER, 0, Action.NEWLINE),
-
             # History (undo/redo)
             KeyBinding(K_z, KMOD_CTRL, Action.UNDO),
             KeyBinding(K_r, KMOD_CTRL, Action.REDO),
-
             # File operations
             KeyBinding(K_s, KMOD_CTRL, Action.SAVE),
             KeyBinding(K_s, KMOD_CTRL | KMOD_SHIFT, Action.SAVE_AS),
             KeyBinding(K_o, 0, Action.OPEN),
             KeyBinding(K_n, KMOD_CTRL, Action.NEW),
-
             # Application
             KeyBinding(K_q, 0, Action.QUIT),
             KeyBinding(K_q, KMOD_CTRL, Action.QUIT),

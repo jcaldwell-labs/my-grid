@@ -30,6 +30,7 @@ class Mode(Enum):
     MARK_JUMP = auto()  # Waiting for bookmark key (' + key)
     VISUAL = auto()  # Visual selection mode
     DRAW = auto()  # Line drawing mode
+    SEARCH = auto()  # Search mode (vim-style /)
 
 
 @dataclass
@@ -147,6 +148,66 @@ class Selection:
         """Update the cursor position (extends/shrinks selection)."""
         self.cursor_x = x
         self.cursor_y = y
+
+
+@dataclass
+class SearchState:
+    """
+    State for canvas search functionality.
+
+    Stores search term, match positions, and current match index.
+    Matches are stored as (x, y, length) tuples representing the
+    starting position and length of each horizontal match.
+    """
+
+    term: str = ""
+    matches: list[tuple[int, int, int]] = field(default_factory=list)  # (x, y, length)
+    current_index: int = 0
+    active: bool = False  # Whether search results are being displayed
+
+    def clear(self) -> None:
+        """Clear search state."""
+        self.term = ""
+        self.matches = []
+        self.current_index = 0
+        self.active = False
+
+    def next_match(self) -> tuple[int, int] | None:
+        """Move to next match, return (x, y) or None if no matches."""
+        if not self.matches:
+            return None
+        self.current_index = (self.current_index + 1) % len(self.matches)
+        x, y, _ = self.matches[self.current_index]
+        return (x, y)
+
+    def prev_match(self) -> tuple[int, int] | None:
+        """Move to previous match, return (x, y) or None if no matches."""
+        if not self.matches:
+            return None
+        self.current_index = (self.current_index - 1) % len(self.matches)
+        x, y, _ = self.matches[self.current_index]
+        return (x, y)
+
+    def current_match_position(self) -> tuple[int, int] | None:
+        """Get current match position, or None if no matches."""
+        if not self.matches:
+            return None
+        x, y, _ = self.matches[self.current_index]
+        return (x, y)
+
+    def contains(self, x: int, y: int) -> bool:
+        """Check if position is within any search match."""
+        for mx, my, length in self.matches:
+            if my == y and mx <= x < mx + length:
+                return True
+        return False
+
+    def is_current_match(self, x: int, y: int) -> bool:
+        """Check if position is within the current (highlighted) match."""
+        if not self.matches:
+            return False
+        mx, my, length = self.matches[self.current_index]
+        return my == y and mx <= x < mx + length
 
 
 @dataclass
@@ -279,6 +340,7 @@ class ModeStateMachine:
         self.command_buffer = CommandBuffer()
         self.bookmarks = BookmarkManager()
         self.selection: Selection | None = None  # Active selection for VISUAL mode
+        self.search_state = SearchState()  # Search state for / command
 
         # Drawing colors
         self.draw_fg: int = -1  # Foreground color (-1 = default)
@@ -360,6 +422,8 @@ class ModeStateMachine:
             return self._process_visual(event)
         elif self._mode == Mode.DRAW:
             return self._process_draw(event)
+        elif self._mode == Mode.SEARCH:
+            return self._process_search(event)
 
         return ModeResult(handled=False)
 
@@ -388,6 +452,12 @@ class ModeStateMachine:
             self._draw_last_dir = None
             self.set_mode(Mode.NAV)
             return ModeResult(mode_changed=True, new_mode=Mode.NAV)
+        elif self._mode == Mode.SEARCH:
+            self.command_buffer.clear()
+            self.set_mode(Mode.NAV)
+            return ModeResult(
+                mode_changed=True, new_mode=Mode.NAV, message="Search cancelled"
+            )
         return ModeResult()
 
     def _process_nav(self, event: "InputEvent") -> ModeResult:
@@ -490,6 +560,33 @@ class ModeStateMachine:
         # Undo (vim-style)
         if event.char == "u":
             return ModeResult(command="undo")
+
+        # Search mode (vim-style /)
+        if event.char == "/":
+            self.command_buffer.clear()
+            self.set_mode(Mode.SEARCH)
+            return ModeResult(mode_changed=True, new_mode=Mode.SEARCH)
+
+        # Search navigation (n = next, N = previous)
+        if event.char == "n" and self.search_state.active:
+            pos = self.search_state.next_match()
+            if pos:
+                self.viewport.cursor.set(pos[0], pos[1])
+                self.viewport.ensure_cursor_visible(margin=self.config.scroll_margin)
+                idx = self.search_state.current_index + 1
+                total = len(self.search_state.matches)
+                return ModeResult(message=f"[/{self.search_state.term}] {idx}/{total}")
+            return ModeResult(message="No matches")
+
+        if event.char == "N" and self.search_state.active:
+            pos = self.search_state.prev_match()
+            if pos:
+                self.viewport.cursor.set(pos[0], pos[1])
+                self.viewport.ensure_cursor_visible(margin=self.config.scroll_margin)
+                idx = self.search_state.current_index + 1
+                total = len(self.search_state.matches)
+                return ModeResult(message=f"[/{self.search_state.term}] {idx}/{total}")
+            return ModeResult(message="No matches")
 
         return ModeResult(handled=False)
 
@@ -1212,3 +1309,53 @@ class ModeStateMachine:
         }
 
         return char_to_bits_map.get(char, 0)
+
+    def _process_search(self, event: "InputEvent") -> ModeResult:
+        """Process input in SEARCH mode - vim-style / search input."""
+        from input import Action
+
+        action = event.action
+        buf = self.command_buffer
+
+        # Handle typed characters
+        if event.char:
+            buf.insert(event.char)
+            return ModeResult()
+
+        # Backspace
+        if action == Action.BACKSPACE:
+            buf.backspace()
+            return ModeResult()
+
+        # Delete
+        if action == Action.DELETE_CHAR:
+            buf.delete()
+            return ModeResult()
+
+        # Cursor movement in search buffer
+        if action == Action.MOVE_LEFT:
+            buf.move_left()
+            return ModeResult()
+
+        if action == Action.MOVE_RIGHT:
+            buf.move_right()
+            return ModeResult()
+
+        # Submit search on Enter
+        if action == Action.NEWLINE:
+            search_term = buf.submit()
+            if search_term:
+                # Signal to execute search - handled by main.py
+                self.search_state.term = search_term
+                self.set_mode(Mode.NAV)
+                return ModeResult(
+                    mode_changed=True,
+                    new_mode=Mode.NAV,
+                    command=f"search {search_term}",
+                )
+            else:
+                # Empty search - just return to NAV
+                self.set_mode(Mode.NAV)
+                return ModeResult(mode_changed=True, new_mode=Mode.NAV)
+
+        return ModeResult(handled=False)

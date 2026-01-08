@@ -168,6 +168,7 @@ class Application:
         self.state_machine.register_command("undo", self._cmd_undo)
         self.state_machine.register_command("redo", self._cmd_redo)
         self.state_machine.register_command("history", self._cmd_history)
+        self.state_machine.register_command("search", self._cmd_search)
 
     def _start_server(self, config: ServerConfig) -> None:
         """Start the API server."""
@@ -310,6 +311,11 @@ class Application:
             buf = self.state_machine.command_buffer
             return f":{buf.text}_"
 
+        # Show search buffer in search mode
+        if self.state_machine.mode == Mode.SEARCH:
+            buf = self.state_machine.command_buffer
+            return f"/{buf.text}_"
+
         # Show prompt for bookmark modes
         if self.state_machine.mode == Mode.MARK_SET:
             return " SET MARK: press a-z or 0-9 (Esc to cancel)"
@@ -328,6 +334,7 @@ class Application:
             "COMMAND": "CMD",
             "VISUAL": "VIS",
             "DRAW": "DRW",
+            "SEARCH": "SRH",
         }
         mode_str = mode_indicators.get(mode, mode)
 
@@ -434,6 +441,7 @@ class Application:
                     self.viewport,
                     status,
                     selection=self.state_machine.selection,
+                    search_state=self.state_machine.search_state,
                 )
 
                 # Get input (may timeout if server/joystick mode)
@@ -970,7 +978,7 @@ class Application:
             ord("i"): Action.ENTER_EDIT_MODE,
             ord("p"): Action.TOGGLE_PAN_MODE,
             ord(":"): Action.ENTER_COMMAND_MODE,
-            ord("/"): Action.ENTER_COMMAND_MODE,
+            # Note: / handled as character in modes.py to enter SEARCH mode
             27: Action.EXIT_MODE,  # Escape
             ord("g"): Action.TOGGLE_GRID_MAJOR,
             ord("G"): Action.TOGGLE_GRID_MINOR,
@@ -999,8 +1007,8 @@ class Application:
         # Check mapped actions
         if key in key_map:
             action = key_map[key]
-            # In edit/command mode, letter keys type instead of triggering actions
-            if self.state_machine.mode in (Mode.EDIT, Mode.COMMAND):
+            # In edit/command/search mode, letter keys type instead of triggering actions
+            if self.state_machine.mode in (Mode.EDIT, Mode.COMMAND, Mode.SEARCH):
                 # Allow arrow keys, function keys, and special keys
                 if key in (
                     curses.KEY_UP,
@@ -1077,6 +1085,10 @@ class Application:
             self._do_undo()
         elif command == "redo":
             self._do_redo()
+        elif command.startswith("search "):
+            # search PATTERN
+            pattern = command[7:]  # Remove "search " prefix
+            self._do_search(pattern)
 
     def _do_save(self) -> None:
         """Save the current project."""
@@ -1169,6 +1181,39 @@ class Application:
             self.project.mark_dirty()
         else:
             self._show_message("Nothing to redo")
+
+    def _cmd_search(self, args: list[str]) -> ModeResult:
+        """Search for text: search PATTERN"""
+        if not args:
+            return ModeResult(message="Usage: search PATTERN")
+        pattern = " ".join(args)
+        self._do_search(pattern)
+        return ModeResult()
+
+    def _do_search(self, pattern: str) -> None:
+        """Search for text pattern in the canvas."""
+        search_state = self.state_machine.search_state
+
+        # Search the canvas
+        matches = self.canvas.search_text(pattern, case_sensitive=False)
+
+        # Update search state
+        search_state.term = pattern
+        search_state.matches = matches
+        search_state.current_index = 0
+        search_state.active = len(matches) > 0
+
+        if matches:
+            # Jump to first match
+            x, y, _ = matches[0]
+            self.viewport.cursor.set(x, y)
+            self.viewport.ensure_cursor_visible(
+                margin=self.state_machine.config.scroll_margin
+            )
+            self._show_message(f"[/{pattern}] 1/{len(matches)} - n:next N:prev")
+        else:
+            search_state.active = False
+            self._show_message(f"Pattern not found: {pattern}")
 
     def _show_help(self) -> None:
         """Show help screen with multiple pages."""

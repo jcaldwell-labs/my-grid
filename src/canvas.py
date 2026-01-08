@@ -17,12 +17,13 @@ class Cell:
     0=black, 1=red, 2=green, 3=yellow, 4=blue, 5=magenta, 6=cyan, 7=white
     -1=default (terminal default)
     """
-    char: str = ' '
+
+    char: str = " "
     fg: int = -1  # Foreground color (-1 = default)
     bg: int = -1  # Background color (-1 = default)
 
     def is_empty(self) -> bool:
-        return self.char == ' ' or self.char == ''
+        return self.char == " " or self.char == ""
 
     def has_color(self) -> bool:
         """Check if cell has non-default colors."""
@@ -63,6 +64,7 @@ def parse_color(color_str: str) -> int:
 @dataclass
 class BoundingBox:
     """Axis-aligned bounding box for canvas content."""
+
     min_x: int
     min_y: int
     max_x: int
@@ -88,6 +90,7 @@ class Canvas:
     Coordinates can be any integer (positive or negative).
     Only non-empty cells are stored in memory.
     """
+
     _cells: dict[tuple[int, int], Cell] = field(default_factory=dict)
 
     def get(self, x: int, y: int) -> Cell:
@@ -111,10 +114,10 @@ class Canvas:
             fg: Foreground color (-1 = default, 0-7 = basic colors)
             bg: Background color (-1 = default, 0-7 = basic colors)
         """
-        if len(char) == 0 or char == ' ':
+        if len(char) == 0 or char == " ":
             # Keep cell if it has color info
             if fg != -1 or bg != -1:
-                self._cells[(x, y)] = Cell(char=' ', fg=fg, bg=bg)
+                self._cells[(x, y)] = Cell(char=" ", fg=fg, bg=bg)
             else:
                 self.clear(x, y)
         else:
@@ -133,7 +136,7 @@ class Canvas:
             self._cells[(x, y)] = Cell(char=cell.char, fg=fg, bg=bg)
         elif (x, y) in self._cells:
             # Reset to default colors
-            if cell.char == ' ':
+            if cell.char == " ":
                 self.clear(x, y)
             else:
                 self._cells[(x, y)] = Cell(char=cell.char, fg=-1, bg=-1)
@@ -186,12 +189,7 @@ class Canvas:
         xs = [c[0] for c in coords]
         ys = [c[1] for c in coords]
 
-        return BoundingBox(
-            min_x=min(xs),
-            min_y=min(ys),
-            max_x=max(xs),
-            max_y=max(ys)
-        )
+        return BoundingBox(min_x=min(xs), min_y=min(ys), max_x=max(xs), max_y=max(ys))
 
     def to_dict(self) -> dict:
         """Serialize canvas to dictionary for JSON export."""
@@ -216,7 +214,7 @@ class Canvas:
             canvas.set(cell_data["x"], cell_data["y"], cell_data["char"], fg=fg, bg=bg)
         return canvas
 
-    def draw_line(self, x1: int, y1: int, x2: int, y2: int, char: str = '*') -> None:
+    def draw_line(self, x1: int, y1: int, x2: int, y2: int, char: str = "*") -> None:
         """
         Draw a line between two points using Bresenham's algorithm.
         """
@@ -240,8 +238,14 @@ class Canvas:
                 y += sy
 
     def draw_rect(
-        self, x: int, y: int, width: int, height: int,
-        h_char: str = '-', v_char: str = '|', corner_char: str = '+'
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        h_char: str = "-",
+        v_char: str = "|",
+        corner_char: str = "+",
     ) -> None:
         """Draw a rectangle outline."""
         # Corners
@@ -270,3 +274,64 @@ class Canvas:
         """Write text horizontally starting at position."""
         for i, char in enumerate(text):
             self.set(x + i, y, char)
+
+    def search_text(
+        self, pattern: str, case_sensitive: bool = False
+    ) -> list[tuple[int, int, int]]:
+        """
+        Search for horizontal text pattern in the canvas.
+
+        Finds consecutive characters that match the pattern, reading left-to-right
+        on each row. Returns all matches as (x, y, length) tuples.
+
+        Args:
+            pattern: Text pattern to search for
+            case_sensitive: Whether search is case-sensitive (default: False)
+
+        Returns:
+            List of (x, y, length) tuples for each match found
+        """
+        if not pattern:
+            return []
+
+        matches: list[tuple[int, int, int]] = []
+
+        # Get bounding box to know the range to search
+        bbox = self.bounding_box()
+        if bbox is None:
+            return []
+
+        # Normalize pattern for comparison
+        search_pattern = pattern if case_sensitive else pattern.lower()
+
+        # For each row in the bounding box, build a string and search
+        for row_y in range(bbox.min_y, bbox.max_y + 1):
+            # Build string for this row with position tracking
+            row_chars: list[tuple[int, str]] = []
+
+            for x in range(bbox.min_x, bbox.max_x + 1):
+                cell = self.get(x, row_y)
+                char = cell.char if cell.char else " "
+                row_chars.append((x, char))
+
+            if not row_chars:
+                continue
+
+            # Build the row string
+            row_str = "".join(c for _, c in row_chars)
+            compare_str = row_str if case_sensitive else row_str.lower()
+
+            # Find all occurrences in this row
+            start = 0
+            while True:
+                idx = compare_str.find(search_pattern, start)
+                if idx == -1:
+                    break
+                # Convert string index to canvas x coordinate
+                match_x = row_chars[idx][0]
+                matches.append((match_x, row_y, len(pattern)))
+                start = idx + 1
+
+        # Sort matches by y, then x (top-to-bottom, left-to-right)
+        matches.sort(key=lambda m: (m[1], m[0]))
+        return matches

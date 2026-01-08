@@ -12,56 +12,59 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from canvas import Canvas
     from viewport import Viewport
-    from modes import Selection
+    from modes import Selection, SearchState
 
 
 class GridLineMode(Enum):
     """Grid display modes."""
-    OFF = auto()      # No grid display
+
+    OFF = auto()  # No grid display
     MARKERS = auto()  # Intersection markers only (default)
-    LINES = auto()    # Full grid lines
-    DOTS = auto()     # Dots along grid lines
+    LINES = auto()  # Full grid lines
+    DOTS = auto()  # Dots along grid lines
 
 
 @dataclass
 class GridSettings:
     """Configuration for grid overlay rendering."""
+
     show_origin: bool = True
     show_major_lines: bool = False
     show_minor_lines: bool = False
 
     major_interval: int = 10  # Major grid markers every N cells
-    minor_interval: int = 5   # Minor markers between major
+    minor_interval: int = 5  # Minor markers between major
 
     # Grid line mode
     line_mode: GridLineMode = GridLineMode.MARKERS
 
     # Ruler and label display
-    show_rulers: bool = False       # Edge rulers with tick marks
-    show_labels: bool = False       # Coordinate labels at intervals
-    label_interval: int = 50        # How often to show coordinate labels
+    show_rulers: bool = False  # Edge rulers with tick marks
+    show_labels: bool = False  # Coordinate labels at intervals
+    label_interval: int = 50  # How often to show coordinate labels
 
     # Characters for grid display
-    origin_char: str = '+'
-    major_char: str = '+'      # Major intersection marker
-    minor_char: str = '·'      # Minor intersection marker (subtle dot)
-    axis_h_char: str = '-'     # Horizontal axis line (through origin)
-    axis_v_char: str = '|'     # Vertical axis line (through origin)
+    origin_char: str = "+"
+    major_char: str = "+"  # Major intersection marker
+    minor_char: str = "·"  # Minor intersection marker (subtle dot)
+    axis_h_char: str = "-"  # Horizontal axis line (through origin)
+    axis_v_char: str = "|"  # Vertical axis line (through origin)
 
     # Line mode characters
-    line_h_char: str = '─'     # Horizontal grid line
-    line_v_char: str = '│'     # Vertical grid line
-    line_cross_char: str = '┼' # Grid line intersection
-    line_major_h: str = '═'    # Major horizontal line
-    line_major_v: str = '║'    # Major vertical line
-    line_major_cross: str = '╬' # Major intersection
+    line_h_char: str = "─"  # Horizontal grid line
+    line_v_char: str = "│"  # Vertical grid line
+    line_cross_char: str = "┼"  # Grid line intersection
+    line_major_h: str = "═"  # Major horizontal line
+    line_major_v: str = "║"  # Major vertical line
+    line_major_cross: str = "╬"  # Major intersection
 
 
 @dataclass
 class RenderStyle:
     """Visual style configuration."""
+
     cursor_char: str | None = None  # None = show cell content, str = override
-    empty_char: str = ' '
+    empty_char: str = " "
 
     # Color pairs (initialized in setup)
     # 0 = default, 1 = cursor, 2 = origin, 3 = major grid, 4 = minor grid
@@ -99,24 +102,32 @@ class Renderer:
             curses.use_default_colors()
 
             # Reserved color pairs (1-10)
-            curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)   # Cursor
-            curses.init_pair(2, curses.COLOR_YELLOW, -1)                  # Origin
-            curses.init_pair(3, curses.COLOR_BLUE, -1)                    # Major grid
-            curses.init_pair(4, curses.COLOR_BLACK, -1)                   # Minor grid (dim)
-            curses.init_pair(5, curses.COLOR_GREEN, -1)                   # Status line
-            curses.init_pair(6, curses.COLOR_BLACK, curses.COLOR_CYAN)    # Visual selection
+            curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)  # Cursor
+            curses.init_pair(2, curses.COLOR_YELLOW, -1)  # Origin
+            curses.init_pair(3, curses.COLOR_BLUE, -1)  # Major grid
+            curses.init_pair(4, curses.COLOR_BLACK, -1)  # Minor grid (dim)
+            curses.init_pair(5, curses.COLOR_GREEN, -1)  # Status line
+            curses.init_pair(
+                6, curses.COLOR_BLACK, curses.COLOR_CYAN
+            )  # Visual selection
+            curses.init_pair(7, curses.COLOR_BLACK, curses.COLOR_YELLOW)  # Search match
+            curses.init_pair(
+                8, curses.COLOR_BLACK, curses.COLOR_GREEN
+            )  # Current search match
 
     def _use_color_pair(self, pair_num: int) -> int:
         """
         Get color pair attribute if colors are supported, otherwise returns A_NORMAL.
 
-        For reserved pairs (1-6), falls back to appropriate attribute on no-color terminals.
+        For reserved pairs (1-8), falls back to appropriate attribute on no-color terminals.
         """
         if not self._colors_supported:
             # Fallback for no-color terminals
             if pair_num == 1:  # Cursor
                 return curses.A_REVERSE
             elif pair_num == 6:  # Visual selection
+                return curses.A_REVERSE
+            elif pair_num in (7, 8):  # Search matches
                 return curses.A_REVERSE
             else:
                 return curses.A_NORMAL
@@ -164,7 +175,8 @@ class Renderer:
         canvas: "Canvas",
         viewport: "Viewport",
         status_line: str | None = None,
-        selection: "Selection | None" = None
+        selection: "Selection | None" = None,
+        search_state: "SearchState | None" = None,
     ) -> None:
         """
         Render the complete frame.
@@ -174,6 +186,7 @@ class Renderer:
             viewport: The viewport defining visible area
             status_line: Optional status text for bottom line
             selection: Optional visual selection to highlight
+            search_state: Optional search state for highlighting matches
         """
         self.stdscr.erase()
 
@@ -200,17 +213,23 @@ class Renderer:
         for sy in range(min(render_height, viewport.height)):
             for sx in range(min(render_width, viewport.width)):
                 cx, cy = viewport.screen_to_canvas(sx, sy)
-                char, attr = self._get_cell_display(canvas, viewport, cx, cy, sx, sy, selection)
+                char, attr = self._get_cell_display(
+                    canvas, viewport, cx, cy, sx, sy, selection, search_state
+                )
 
                 try:
-                    self.stdscr.addch(sy + ruler_offset_y, sx + ruler_offset_x, char, attr)
+                    self.stdscr.addch(
+                        sy + ruler_offset_y, sx + ruler_offset_x, char, attr
+                    )
                 except curses.error:
                     # Ignore errors at bottom-right corner
                     pass
 
         # Render coordinate labels if enabled
         if self.grid.show_labels:
-            self._render_coordinate_labels(viewport, width, height, ruler_offset_x, ruler_offset_y)
+            self._render_coordinate_labels(
+                viewport, width, height, ruler_offset_x, ruler_offset_y
+            )
 
         # Render status line
         if status_line:
@@ -222,9 +241,12 @@ class Renderer:
         self,
         canvas: "Canvas",
         viewport: "Viewport",
-        cx: int, cy: int,
-        sx: int, sy: int,
-        selection: "Selection | None" = None
+        cx: int,
+        cy: int,
+        sx: int,
+        sy: int,
+        selection: "Selection | None" = None,
+        search_state: "SearchState | None" = None,
     ) -> tuple[str, int]:
         """
         Determine what character and attributes to display at a position.
@@ -236,24 +258,37 @@ class Renderer:
         char = cell.char
 
         # Check if this is the cursor position
-        is_cursor = (cx == viewport.cursor.x and cy == viewport.cursor.y)
+        is_cursor = cx == viewport.cursor.x and cy == viewport.cursor.y
         if is_cursor:
             if self.style.cursor_char:
                 char = self.style.cursor_char
             attr = self._use_color_pair(1) | curses.A_BOLD
-            return char if char != ' ' else self.style.empty_char, attr
+            return char if char != " " else self.style.empty_char, attr
 
         # Check if within visual selection (but not cursor - handled above)
         if selection is not None and selection.contains(cx, cy):
             attr = self._use_color_pair(6)  # Visual selection color
-            if char == ' ':
+            if char == " ":
                 char = self.style.empty_char
             return char, attr
+
+        # Check for search matches (highlight current match differently)
+        if search_state is not None and search_state.active:
+            if search_state.is_current_match(cx, cy):
+                attr = self._use_color_pair(8)  # Current match (green bg)
+                if char == " ":
+                    char = self.style.empty_char
+                return char, attr
+            elif search_state.contains(cx, cy):
+                attr = self._use_color_pair(7)  # Other matches (yellow bg)
+                if char == " ":
+                    char = self.style.empty_char
+                return char, attr
 
         # Check for origin
         if self.grid.show_origin:
             if cx == viewport.origin.x and cy == viewport.origin.y:
-                if char == ' ':
+                if char == " ":
                     char = self.grid.origin_char
                 attr = self._use_color_pair(2) | curses.A_BOLD
                 return char, attr
@@ -262,26 +297,24 @@ class Renderer:
         if cell.has_color():
             pair = self._get_color_pair(cell.fg, cell.bg)
             attr = curses.color_pair(pair)
-            if char == ' ':
+            if char == " ":
                 char = self.style.empty_char
             return char, attr
 
         # Check for grid lines (only show if cell is empty)
-        if char == ' ':
+        if char == " ":
             grid_char, grid_attr = self._get_grid_char(cx, cy, viewport)
             if grid_char:
                 return grid_char, grid_attr
 
         # Regular cell
-        if char == ' ':
+        if char == " ":
             char = self.style.empty_char
 
         return char, attr
 
     def _get_grid_char(
-        self,
-        cx: int, cy: int,
-        viewport: "Viewport"
+        self, cx: int, cy: int, viewport: "Viewport"
     ) -> tuple[str | None, int]:
         """
         Get grid overlay character for a position.
@@ -337,14 +370,23 @@ class Renderer:
             # Major lines (not at intersection)
             if self.grid.show_major_lines:
                 if is_on_major_h and not is_on_major_v:
-                    return self.grid.line_major_h, self._use_color_pair(3) | curses.A_DIM
+                    return (
+                        self.grid.line_major_h,
+                        self._use_color_pair(3) | curses.A_DIM,
+                    )
                 if is_on_major_v and not is_on_major_h:
-                    return self.grid.line_major_v, self._use_color_pair(3) | curses.A_DIM
+                    return (
+                        self.grid.line_major_v,
+                        self._use_color_pair(3) | curses.A_DIM,
+                    )
 
             # Minor intersections
             if self.grid.show_minor_lines and is_minor_intersection:
                 if not (is_major_intersection and self.grid.show_major_lines):
-                    return self.grid.line_cross_char, self._use_color_pair(4) | curses.A_DIM
+                    return (
+                        self.grid.line_cross_char,
+                        self._use_color_pair(4) | curses.A_DIM,
+                    )
 
             # Minor lines (not at intersection)
             if self.grid.show_minor_lines:
@@ -359,11 +401,13 @@ class Renderer:
         if self.grid.line_mode == GridLineMode.DOTS:
             if self.grid.show_major_lines:
                 if is_on_major_h or is_on_major_v:
-                    return '•', self._use_color_pair(3) | curses.A_DIM
+                    return "•", self._use_color_pair(3) | curses.A_DIM
             if self.grid.show_minor_lines:
                 if is_on_minor_h or is_on_minor_v:
-                    if not ((is_on_major_h or is_on_major_v) and self.grid.show_major_lines):
-                        return '·', self._use_color_pair(4) | curses.A_DIM
+                    if not (
+                        (is_on_major_h or is_on_major_v) and self.grid.show_major_lines
+                    ):
+                        return "·", self._use_color_pair(4) | curses.A_DIM
             return None, 0
 
         return None, 0
@@ -374,7 +418,7 @@ class Renderer:
         width: int,
         height: int,
         offset_x: int,
-        offset_y: int
+        offset_y: int,
     ) -> None:
         """
         Render coordinate rulers along the edges.
@@ -406,7 +450,7 @@ class Renderer:
             elif cx % 5 == 0:
                 # Minor tick
                 try:
-                    self.stdscr.addch(0, sx + offset_x, '·', ruler_attr)
+                    self.stdscr.addch(0, sx + offset_x, "·", ruler_attr)
                 except curses.error:
                     pass
 
@@ -424,7 +468,7 @@ class Renderer:
             elif cy % 5 == 0:
                 # Minor tick
                 try:
-                    self.stdscr.addch(sy + offset_y, 4, '·', ruler_attr)
+                    self.stdscr.addch(sy + offset_y, 4, "·", ruler_attr)
                 except curses.error:
                     pass
 
@@ -434,7 +478,7 @@ class Renderer:
         width: int,
         height: int,
         offset_x: int,
-        offset_y: int
+        offset_y: int,
     ) -> None:
         """
         Render coordinate labels at regular intervals on the canvas.
@@ -462,12 +506,7 @@ class Renderer:
                 sx, sy = screen_pos
                 label = f"x={cx}"
                 try:
-                    self.stdscr.addstr(
-                        sy + offset_y,
-                        sx + offset_x,
-                        label,
-                        label_attr
-                    )
+                    self.stdscr.addstr(sy + offset_y, sx + offset_x, label, label_attr)
                 except curses.error:
                     pass
 
@@ -478,12 +517,7 @@ class Renderer:
                 sx, sy = screen_pos
                 label = f"y={cy}"
                 try:
-                    self.stdscr.addstr(
-                        sy + offset_y,
-                        sx + offset_x,
-                        label,
-                        label_attr
-                    )
+                    self.stdscr.addstr(sy + offset_y, sx + offset_x, label, label_attr)
                 except curses.error:
                     pass
 
@@ -491,7 +525,7 @@ class Renderer:
         """Render status line at bottom of screen."""
         # Truncate if too long
         if len(text) > width - 1:
-            text = text[:width - 4] + "..."
+            text = text[: width - 4] + "..."
 
         # Pad to fill width
         text = text.ljust(width - 1)
@@ -507,7 +541,7 @@ class Renderer:
         if row < 0:
             row = height + row  # Support negative indexing
 
-        text = message[:width - 1]
+        text = message[: width - 1]
         try:
             self.stdscr.addstr(row, 0, text, curses.A_BOLD)
             self.stdscr.clrtoeol()
@@ -543,7 +577,7 @@ class Renderer:
             self.stdscr.refresh()
 
             input_str = self.stdscr.getstr(y, len(prompt), width - len(prompt) - 1)
-            return input_str.decode('utf-8')
+            return input_str.decode("utf-8")
         except curses.error:
             return ""
         finally:
@@ -593,6 +627,8 @@ def run_with_curses(func):
             renderer = Renderer(stdscr)
             ...
     """
+
     def wrapper(*args, **kwargs):
         return curses.wrapper(lambda stdscr: func(stdscr, *args, **kwargs))
+
     return wrapper
