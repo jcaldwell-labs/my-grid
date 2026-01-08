@@ -18,20 +18,29 @@ my-grid is a persistent ASCII canvas editor with:
 - **TCP API**: Control via external processes
 - **Layouts**: Save/restore workspace templates
 
+## Prerequisites
+
+**tmux is required.** Check with `echo $TMUX` - if empty, start tmux first:
+
+```bash
+tmux new -s claude
+# Then run Claude Code inside tmux
+```
+
 ## Quick Start
 
 ```bash
 cd ${CLAUDE_PLUGIN_ROOT}
 
 # Spawn in tmux (67% width by default)
-python3 claude-plugin/src/cli.py spawn
+python3 src/cli.py spawn
 
 # Send commands
-python3 claude-plugin/src/cli.py send ":text Hello World"
-python3 claude-plugin/src/cli.py send ":rect 20 10"
+python3 src/cli.py send ":text Hello World"
+python3 src/cli.py send ":rect 20 10"
 
 # Create zones
-python3 claude-plugin/src/cli.py send ":zone watch GIT 50 15 5s git status --short"
+python3 src/cli.py send ":zone watch GIT 50 15 5s git status --short"
 ```
 
 ## Pane Management
@@ -59,19 +68,19 @@ python3 claude-plugin/src/cli.py send ":zone watch GIT 50 15 5s git status --sho
 ### DevOps Dashboard
 
 ```bash
-python3 claude-plugin/src/cli.py spawn --layout devops
+python3 src/cli.py spawn --layout devops
 ```
 
 ### Real-time Monitoring
 
 ```bash
-python3 claude-plugin/src/cli.py send ":zone watch LOG 80 20 watch:/var/log/app.log tail -20 {file}"
+python3 src/cli.py send ":zone watch LOG 80 20 watch:/var/log/app.log tail -20 {file}"
 ```
 
 ### Side-by-Side with Claude
 
 ```bash
-python3 claude-plugin/src/cli.py spawn --ratio 50
+python3 src/cli.py spawn --ratio 50
 ```
 
 ## Requirements

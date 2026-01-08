@@ -40,10 +40,10 @@ def find_mygrid_root() -> Path:
             return root
 
     # Check marketplace directory (plugin installed from marketplace)
-    # Cache path: ~/.claude/plugins/cache/my-grid/grid/0.1.0/src/terminal.py
+    # Cache path: ~/.claude/plugins/cache/my-grid/grid/<VERSION>/src/terminal.py
     # Marketplace: ~/.claude/plugins/marketplaces/my-grid/
     plugin_file = Path(__file__)
-    cache_path = plugin_file.parent.parent  # cache/my-grid/grid/0.1.0/
+    cache_path = plugin_file.parent.parent  # cache/my-grid/grid/<VERSION>/
     plugins_root = cache_path.parent.parent.parent.parent  # ~/.claude/plugins/
     marketplace_path = plugins_root / "marketplaces" / "my-grid"
     if (marketplace_path / "mygrid.py").exists():
