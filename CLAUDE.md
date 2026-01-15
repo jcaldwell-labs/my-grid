@@ -829,3 +829,130 @@ claude
 3. **Bookmarks**: Use bookmarks for quick navigation between Claude output and your work areas
 4. **Persistence**: Layouts preserve your integration setup across sessions
 5. **Meta-inception**: Run Claude Code inside PTY zones to develop my-grid with Claude's help!
+
+---
+
+## MCP Server (AI Agent Integration)
+
+my-grid includes an MCP (Model Context Protocol) server that enables AI tools like Claude Code, Warp, and other MCP-compatible clients to control my-grid programmatically.
+
+### Quick Start
+
+```bash
+# 1. Start my-grid with API server
+python mygrid.py --server
+
+# 2. In a separate terminal, start the MCP server
+python -m src.mcp_server
+```
+
+### Claude Code Integration
+
+Add to your Claude Code settings (`.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "my-grid": {
+      "command": "python",
+      "args": ["-m", "src.mcp_server"],
+      "cwd": "/path/to/my-grid"
+    }
+  }
+}
+```
+
+### Available MCP Tools
+
+The MCP server exposes 32 tools across several categories:
+
+**Canvas Tools:**
+| Tool | Description |
+|------|-------------|
+| `canvas_text` | Write text at cursor or coordinates |
+| `canvas_rect` | Draw a rectangle |
+| `canvas_line` | Draw a line |
+| `canvas_clear` | Clear the canvas |
+| `canvas_fill` | Fill a region |
+| `canvas_box` | Draw ASCII box (requires `boxes`) |
+| `canvas_figlet` | Draw ASCII art (requires `figlet`) |
+
+**Navigation Tools:**
+| Tool | Description |
+|------|-------------|
+| `canvas_goto` | Move cursor to coordinates |
+| `canvas_status` | Get cursor position and mode |
+| `canvas_origin` | Set coordinate origin |
+
+**Zone Tools:**
+| Tool | Description |
+|------|-------------|
+| `zone_create` | Create static zone |
+| `zone_pipe` | Create one-shot command zone |
+| `zone_watch` | Create periodic refresh zone |
+| `zone_http` | Create URL content zone |
+| `zone_pty` | Create interactive terminal zone |
+| `zone_delete` | Delete a zone |
+| `zone_goto` | Jump to zone |
+| `zone_list` | List all zones |
+| `zone_info` | Get zone details |
+| `zone_refresh` | Manually refresh zone |
+| `zone_send` | Send input to PTY zone |
+
+**Bookmark Tools:**
+| Tool | Description |
+|------|-------------|
+| `bookmark_set` | Set a bookmark |
+| `bookmark_jump` | Jump to bookmark |
+| `bookmark_list` | List all bookmarks |
+| `bookmark_delete` | Delete bookmark |
+
+**Layout Tools:**
+| Tool | Description |
+|------|-------------|
+| `layout_load` | Load saved layout |
+| `layout_save` | Save current layout |
+| `layout_list` | List available layouts |
+
+**Project Tools:**
+| Tool | Description |
+|------|-------------|
+| `project_save` | Save canvas to file |
+| `project_export` | Export as plain text |
+| `execute_command` | Run arbitrary command |
+| `check_connection` | Verify my-grid connection |
+
+### Example Usage (from AI Agent)
+
+```
+AI: I'll create a dashboard for monitoring your system.
+
+[Calls zone_watch with name="CPU", width=40, height=5, interval="5s", command="uptime"]
+[Calls zone_watch with name="DISK", width=40, height=10, interval="30s", command="df -h"]
+[Calls zone_watch with name="PROCESSES", width=60, height=15, interval="10s", command="ps aux --sort=-%mem | head -10"]
+[Calls canvas_text with text="System Dashboard", x=0, y=-2]
+
+AI: I've created a system monitoring dashboard with CPU usage, disk space, and top processes.
+```
+
+### Architecture
+
+```
+┌──────────────────┐     stdio      ┌─────────────────┐
+│  AI Client       │ ◄────────────► │  MCP Server     │
+│  (Claude Code)   │   JSON-RPC     │  (mcp_server.py)│
+└──────────────────┘                └────────┬────────┘
+                                             │ TCP
+                                             ▼
+                                    ┌─────────────────┐
+                                    │  my-grid        │
+                                    │  (--server)     │
+                                    └─────────────────┘
+```
+
+The MCP server acts as a bridge:
+
+1. AI clients connect via stdio using JSON-RPC 2.0 protocol
+2. MCP server translates tool calls to my-grid commands
+3. Commands are sent to my-grid's TCP API server (port 8765)
+4. Results are returned to the AI client
