@@ -45,7 +45,7 @@ class MyGridClient:
             sock.close()
             try:
                 return json.loads(response)
-            except:
+            except json.JSONDecodeError:
                 return {"status": "ok", "message": response}
         except socket.timeout:
             return {"status": "error", "message": "Connection timeout"}
@@ -140,7 +140,7 @@ def cmd_send_at_coords():
     try:
         parts = coords.strip().split()
         x, y = int(parts[0]), int(parts[1])
-    except:
+    except (ValueError, IndexError):
         console.write("[my-grid] Invalid coordinates. Use: X Y (e.g., 10 20)\n")
         return
 
@@ -183,7 +183,7 @@ def cmd_create_zone():
         parts = params.strip().split()
         name = parts[0]
         w, h = int(parts[1]), int(parts[2])
-    except:
+    except (ValueError, IndexError):
         console.write("[my-grid] Invalid params. Use: NAME WIDTH HEIGHT\n")
         return
 
@@ -205,7 +205,7 @@ def cmd_check_status():
             console.write("  Mode: {}\n".format(info.get('mode', '?')))
             console.write("  Cells: {}\n".format(info.get('cells', '?')))
             console.write("  File: {}\n".format(info.get('file', '?')))
-        except:
+        except (json.JSONDecodeError, KeyError, TypeError):
             console.write("[my-grid] Connected: {}\n".format(result.get('message')))
     else:
         show_result(result, "Status")
