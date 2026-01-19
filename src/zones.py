@@ -1967,65 +1967,75 @@ class PTYHandler:
             stop_event: Threading event for shutdown
             screen: PTYScreen instance for terminal emulation
         """
-
-        while not stop_event.is_set():
-            try:
-                # Use select with faster timeout for responsive updates
-                readable, _, _ = select.select([fd], [], [], 0.05)
-
-                if not readable:
-                    continue
-
-                # Read data from PTY
-                data = os.read(fd, 4096)
-                if not data:
-                    # EOF - process exited
-                    # Get final screen state WITH COLORS
-                    final_styled = screen.get_display_lines_styled(scroll_offset=0)
-                    # Add exit message as plain text line
-                    from src.pty_screen import StyledChar
-
-                    exit_line = [StyledChar(ch, -1, -1) for ch in "[Process exited]"]
-                    zone.set_styled_content(final_styled + [exit_line])
-                    break
-
-                # Decode and feed to pyte (handles ALL terminal sequences!)
-                text = data.decode("utf-8", errors="replace")
-                screen.feed(text)
-
-                # Get current display from pyte screen WITH COLORS
-                if zone.config.pty_auto_scroll:
-                    # Show current screen (normal mode)
-                    styled_lines = screen.get_display_lines_styled(scroll_offset=0)
-                else:
-                    # Show scrolled view
-                    styled_lines = screen.get_display_lines_styled(
-                        scroll_offset=zone.config.pty_scroll_offset
-                    )
-
-                # Update zone content with styled characters (colors preserved!)
-                # This is key: pyte maintains the screen state, we just display it
-                zone.set_styled_content(styled_lines)
-
-            except OSError:
-                # FD closed or error
-                break
-            except Exception as e:
-                # On error, try to preserve screen state
+        try:
+            while not stop_event.is_set():
                 try:
-                    from src.pty_screen import StyledChar
+                    # Use select with faster timeout for responsive updates
+                    readable, _, _ = select.select([fd], [], [], 0.05)
 
-                    styled_lines = screen.get_display_lines_styled(scroll_offset=0)
-                    error_msg = f"[PTY error: {e}]"
-                    error_line = [StyledChar(ch, 1, -1) for ch in error_msg]  # Red text
-                    zone.set_styled_content(styled_lines + [error_line])
-                except (ImportError, AttributeError, TypeError):
-                    from src.pty_screen import StyledChar
+                    if not readable:
+                        continue
 
-                    error_msg = f"[PTY error: {e}]"
-                    error_line = [StyledChar(ch, 1, -1) for ch in error_msg]
-                    zone.set_styled_content([error_line])
-                break
+                    # Read data from PTY
+                    data = os.read(fd, 4096)
+                    if not data:
+                        # EOF - process exited
+                        # Get final screen state WITH COLORS
+                        final_styled = screen.get_display_lines_styled(scroll_offset=0)
+                        # Add exit message as plain text line
+                        from src.pty_screen import StyledChar
+
+                        exit_line = [
+                            StyledChar(ch, -1, -1) for ch in "[Process exited]"
+                        ]
+                        zone.set_styled_content(final_styled + [exit_line])
+                        break
+
+                    # Decode and feed to pyte (handles ALL terminal sequences!)
+                    text = data.decode("utf-8", errors="replace")
+                    screen.feed(text)
+
+                    # Get current display from pyte screen WITH COLORS
+                    if zone.config.pty_auto_scroll:
+                        # Show current screen (normal mode)
+                        styled_lines = screen.get_display_lines_styled(scroll_offset=0)
+                    else:
+                        # Show scrolled view
+                        styled_lines = screen.get_display_lines_styled(
+                            scroll_offset=zone.config.pty_scroll_offset
+                        )
+
+                    # Update zone content with styled characters (colors preserved!)
+                    # This is key: pyte maintains the screen state, we just display it
+                    zone.set_styled_content(styled_lines)
+
+                except OSError:
+                    # FD closed or error
+                    break
+                except Exception as e:
+                    # On error, try to preserve screen state
+                    try:
+                        from src.pty_screen import StyledChar
+
+                        styled_lines = screen.get_display_lines_styled(scroll_offset=0)
+                        error_msg = f"[PTY error: {e}]"
+                        error_line = [
+                            StyledChar(ch, 1, -1) for ch in error_msg
+                        ]  # Red text
+                        zone.set_styled_content(styled_lines + [error_line])
+                    except (ImportError, AttributeError, TypeError):
+                        from src.pty_screen import StyledChar
+
+                        error_msg = f"[PTY error: {e}]"
+                        error_line = [StyledChar(ch, 1, -1) for ch in error_msg]
+                        zone.set_styled_content([error_line])
+                    break
+        finally:
+            # Ensure fd is closed to prevent resource leak
+            try:
+                os.close(fd)
+            except OSError:
+                pass  # Already closed by stop_pty() or other path
 
     def _pty_reader(self, zone: Zone, fd: int, stop_event: threading.Event) -> None:
         """OLD: Line-based PTY reader (DEPRECATED - kept for reference).
@@ -2036,57 +2046,64 @@ class PTYHandler:
         buffer = ""
         showing_incomplete = False
 
-        while not stop_event.is_set():
-            try:
-                # Use select with timeout for responsive shutdown
-                readable, _, _ = select.select([fd], [], [], 0.1)
+        try:
+            while not stop_event.is_set():
+                try:
+                    # Use select with timeout for responsive shutdown
+                    readable, _, _ = select.select([fd], [], [], 0.1)
 
-                if not readable:
-                    continue
+                    if not readable:
+                        continue
 
-                data = os.read(fd, 4096)
-                if not data:
-                    # EOF - process exited
-                    if buffer.strip():
-                        zone.append_content(buffer)
-                    zone.append_content("[Process exited]")
+                    data = os.read(fd, 4096)
+                    if not data:
+                        # EOF - process exited
+                        if buffer.strip():
+                            zone.append_content(buffer)
+                        zone.append_content("[Process exited]")
+                        break
+
+                    # Decode and process output
+                    text = data.decode("utf-8", errors="replace")
+                    buffer += text
+
+                    # Split on newlines
+                    parts = buffer.split("\n")
+
+                    # Remove previous incomplete line if we had one
+                    if showing_incomplete and zone._content_lines:
+                        zone._content_lines.pop()
+                        showing_incomplete = False
+
+                    # Add all complete lines (everything except the last element)
+                    for line in parts[:-1]:
+                        # Remove carriage returns
+                        clean_line = line.replace("\r", "")
+                        zone.append_content(clean_line)
+
+                    # Keep the incomplete part in buffer
+                    buffer = parts[-1]
+
+                    # Show the incomplete line (what you're currently typing!)
+                    if buffer:
+                        # Don't show if it's just \r or whitespace
+                        display_buffer = buffer.replace("\r", "")
+                        if display_buffer:
+                            zone.append_content(display_buffer)
+                            showing_incomplete = True
+
+                except OSError:
+                    # FD closed or error
                     break
-
-                # Decode and process output
-                text = data.decode("utf-8", errors="replace")
-                buffer += text
-
-                # Split on newlines
-                parts = buffer.split("\n")
-
-                # Remove previous incomplete line if we had one
-                if showing_incomplete and zone._content_lines:
-                    zone._content_lines.pop()
-                    showing_incomplete = False
-
-                # Add all complete lines (everything except the last element)
-                for line in parts[:-1]:
-                    # Remove carriage returns
-                    clean_line = line.replace("\r", "")
-                    zone.append_content(clean_line)
-
-                # Keep the incomplete part in buffer
-                buffer = parts[-1]
-
-                # Show the incomplete line (what you're currently typing!)
-                if buffer:
-                    # Don't show if it's just \r or whitespace
-                    display_buffer = buffer.replace("\r", "")
-                    if display_buffer:
-                        zone.append_content(display_buffer)
-                        showing_incomplete = True
-
+                except Exception as e:
+                    zone.append_content(f"[Read error: {e}]")
+                    break
+        finally:
+            # Ensure fd is closed to prevent resource leak
+            try:
+                os.close(fd)
             except OSError:
-                # FD closed or error
-                break
-            except Exception as e:
-                zone.append_content(f"[Read error: {e}]")
-                break
+                pass  # Already closed by stop_pty() or other path
 
     def get_screen(self, name: str):
         """
