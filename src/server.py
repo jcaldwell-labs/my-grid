@@ -46,13 +46,14 @@ class ServerConfig:
 
     def __post_init__(self):
         # Auto-disable FIFO on Windows
-        if os.name == 'nt':
+        if os.name == "nt":
             self.fifo_enabled = False
 
 
 @dataclass
 class ServerStatus:
     """Current status of the API server."""
+
     running: bool = False
     tcp_active: bool = False
     tcp_port: int | None = None
@@ -103,31 +104,26 @@ class APIServer:
         # Start TCP listener
         if self.config.tcp_enabled:
             thread = threading.Thread(
-                target=self._tcp_listener,
-                name="mygrid-tcp",
-                daemon=True
+                target=self._tcp_listener, name="mygrid-tcp", daemon=True
             )
             thread.start()
             self._threads.append(thread)
 
         # Start FIFO listener (Unix only)
-        if self.config.fifo_enabled and os.name != 'nt':
+        if self.config.fifo_enabled and os.name != "nt":
             thread = threading.Thread(
-                target=self._fifo_listener,
-                name="mygrid-fifo",
-                daemon=True
+                target=self._fifo_listener, name="mygrid-fifo", daemon=True
             )
             thread.start()
             self._threads.append(thread)
 
         # Start Windows named pipe (if pywin32 available)
-        if self.config.pipe_enabled and os.name == 'nt':
+        if self.config.pipe_enabled and os.name == "nt":
             try:
                 import win32pipe  # noqa: F401
+
                 thread = threading.Thread(
-                    target=self._pipe_listener,
-                    name="mygrid-pipe",
-                    daemon=True
+                    target=self._pipe_listener, name="mygrid-pipe", daemon=True
                 )
                 thread.start()
                 self._threads.append(thread)
@@ -135,8 +131,10 @@ class APIServer:
                 logger.warning("pywin32 not installed, Windows pipe disabled")
                 self._status.errors.append("pywin32 not installed")
 
-        logger.info(f"API server started: TCP={self.config.tcp_enabled}, "
-                   f"FIFO={self.config.fifo_enabled and os.name != 'nt'}")
+        logger.info(
+            f"API server started: TCP={self.config.tcp_enabled}, "
+            f"FIFO={self.config.fifo_enabled and os.name != 'nt'}"
+        )
 
     def stop(self) -> None:
         """Stop the API server and all listener threads."""
@@ -152,7 +150,14 @@ class APIServer:
             except OSError:
                 pass
 
-        # Threads are daemons, they'll stop when main exits
+        # Join threads to allow in-flight operations to complete
+        # Use timeout to prevent hanging on stuck threads
+        for thread in self._threads:
+            if thread.is_alive():
+                thread.join(timeout=2.0)
+                if thread.is_alive():
+                    logger.warning(f"Thread {thread.name} did not stop within timeout")
+
         self._threads.clear()
         logger.info("API server stopped")
 
@@ -176,7 +181,9 @@ class APIServer:
                     self._status.tcp_active = True
                     self._status.tcp_port = config.tcp_port
 
-                logger.info(f"TCP listener started on {config.tcp_host}:{config.tcp_port}")
+                logger.info(
+                    f"TCP listener started on {config.tcp_host}:{config.tcp_port}"
+                )
 
                 while self._running:
                     try:
@@ -208,14 +215,14 @@ class APIServer:
                 if not chunk:
                     break
                 data += chunk
-                if b'\n' in data or len(data) > 65536:
+                if b"\n" in data or len(data) > 65536:
                     break
 
             if not data:
                 return
 
             # Parse and execute commands
-            commands = data.decode('utf-8', errors='replace').strip().split('\n')
+            commands = data.decode("utf-8", errors="replace").strip().split("\n")
             responses = []
 
             for cmd in commands:
@@ -235,8 +242,8 @@ class APIServer:
                     responses.append({"status": "error", "message": "Command timeout"})
 
             # Send responses
-            response_data = '\n'.join(json.dumps(r) for r in responses) + '\n'
-            conn.sendall(response_data.encode('utf-8'))
+            response_data = "\n".join(json.dumps(r) for r in responses) + "\n"
+            conn.sendall(response_data.encode("utf-8"))
 
             with self._lock:
                 self._status.connections_handled += 1
@@ -269,7 +276,7 @@ class APIServer:
             while self._running:
                 try:
                     # Open blocks until a writer connects
-                    with open(fifo_path, 'r') as fifo:
+                    with open(fifo_path, "r") as fifo:
                         for line in fifo:
                             if not self._running:
                                 break
@@ -320,12 +327,14 @@ class APIServer:
                     pipe = win32pipe.CreateNamedPipe(
                         pipe_name,
                         win32pipe.PIPE_ACCESS_DUPLEX,
-                        win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                        win32pipe.PIPE_TYPE_MESSAGE
+                        | win32pipe.PIPE_READMODE_MESSAGE
+                        | win32pipe.PIPE_WAIT,
                         1,  # Max instances
                         65536,  # Out buffer
                         65536,  # In buffer
                         0,  # Timeout
-                        None  # Security
+                        None,  # Security
                     )
 
                     # Wait for client
@@ -333,7 +342,9 @@ class APIServer:
 
                     # Read command
                     result, data = win32file.ReadFile(pipe, 65536)
-                    commands = data.decode('utf-8', errors='replace').strip().split('\n')
+                    commands = (
+                        data.decode("utf-8", errors="replace").strip().split("\n")
+                    )
                     responses = []
 
                     for cmd in commands:
@@ -342,17 +353,23 @@ class APIServer:
                             continue
 
                         response_queue: Queue[CommandResponse] = Queue()
-                        self.command_queue.put(cmd, response_queue=response_queue, source="pipe")
+                        self.command_queue.put(
+                            cmd, response_queue=response_queue, source="pipe"
+                        )
 
                         try:
-                            response = response_queue.get(timeout=self.config.response_timeout)
+                            response = response_queue.get(
+                                timeout=self.config.response_timeout
+                            )
                             responses.append(response.to_dict())
                         except Exception:
-                            responses.append({"status": "error", "message": "Command timeout"})
+                            responses.append(
+                                {"status": "error", "message": "Command timeout"}
+                            )
 
                     # Send response
-                    response_data = '\n'.join(json.dumps(r) for r in responses) + '\n'
-                    win32file.WriteFile(pipe, response_data.encode('utf-8'))
+                    response_data = "\n".join(json.dumps(r) for r in responses) + "\n"
+                    win32file.WriteFile(pipe, response_data.encode("utf-8"))
 
                     win32file.CloseHandle(pipe)
 
