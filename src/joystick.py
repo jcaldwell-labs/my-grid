@@ -5,11 +5,14 @@ Provides cross-platform joystick support using pygame.
 Works on Windows native and WSL via USB passthrough (usbipd).
 """
 
+import logging
 import time
 import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # pygame import is deferred to avoid loading if not needed
 _pygame_available: Optional[bool] = None
@@ -22,6 +25,7 @@ def _check_pygame() -> bool:
     if _pygame_available is None:
         try:
             import pygame
+
             _pygame = pygame
             _pygame_available = True
         except ImportError:
@@ -31,6 +35,7 @@ def _check_pygame() -> bool:
 
 class JoystickDirection(Enum):
     """Digital direction from joystick axes."""
+
     NONE = auto()
     UP = auto()
     DOWN = auto()
@@ -45,6 +50,7 @@ class JoystickDirection(Enum):
 @dataclass
 class JoystickState:
     """Current state of joystick inputs."""
+
     # Analog axis values (-1.0 to 1.0)
     x_axis: float = 0.0
     y_axis: float = 0.0
@@ -63,6 +69,7 @@ class JoystickState:
 @dataclass
 class JoystickConfig:
     """Joystick configuration settings."""
+
     # Deadzone for analog sticks (0.0 to 1.0)
     deadzone: float = 0.15
 
@@ -76,12 +83,14 @@ class JoystickConfig:
     repeat_delay: float = 0.3
 
     # Button mappings (button_id -> action name)
-    button_map: dict = field(default_factory=lambda: {
-        0: "select",   # Usually A/Cross
-        1: "back",     # Usually B/Circle
-        2: "action1",  # X/Square
-        3: "action2",  # Y/Triangle
-    })
+    button_map: dict = field(
+        default_factory=lambda: {
+            0: "select",  # Usually A/Cross
+            1: "back",  # Usually B/Circle
+            2: "action1",  # X/Square
+            3: "action2",  # Y/Triangle
+        }
+    )
 
 
 class JoystickHandler:
@@ -134,6 +143,7 @@ class JoystickHandler:
             # On Linux/WSL, help SDL find the joystick device
             import os
             import glob
+
             if os.path.exists("/dev/input"):
                 # Look for joystick event devices
                 js_devices = glob.glob("/dev/input/by-id/*joystick*")
@@ -177,15 +187,15 @@ class JoystickHandler:
             if self._joystick:
                 try:
                     self._joystick.quit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Joystick quit error: %s", e)
                 self._joystick = None
 
             if _pygame_available and _pygame:
                 try:
                     _pygame.joystick.quit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Pygame joystick quit error: %s", e)
 
             self._initialized = False
             self._healthy = False
@@ -205,14 +215,15 @@ class JoystickHandler:
             _ = self._joystick.get_numaxes()
             self._healthy = True
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug("Joystick health check failed: %s", e)
             self._healthy = False
             self._initialized = False
             if self._joystick:
                 try:
                     self._joystick.quit()
-                except Exception:
-                    pass
+                except Exception as e2:
+                    logger.debug("Joystick quit during health check: %s", e2)
                 self._joystick = None
             return False
 
@@ -231,8 +242,8 @@ class JoystickHandler:
             if self._joystick:
                 try:
                     self._joystick.quit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Joystick quit during reconnect: %s", e)
                 self._joystick = None
 
             _pygame.joystick.quit()
@@ -250,8 +261,8 @@ class JoystickHandler:
                     self._prev_buttons[i] = self._joystick.get_button(i)
 
                 return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Joystick reconnect failed: %s", e)
 
         return False
 
