@@ -8,10 +8,13 @@ Security: JSON files are validated before loading (Issue #68).
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from canvas import Canvas
@@ -629,7 +632,8 @@ class SessionManager:
             self._cleanup_old_sessions()
 
             return session_path
-        except Exception:
+        except Exception as e:
+            logger.warning("Session save failed: %s", e)
             return None
 
     def _cleanup_old_sessions(self) -> None:
@@ -644,8 +648,8 @@ class SessionManager:
             # Keep only the most recent sessions
             for old_session in sessions[self.max_sessions :]:
                 old_session.unlink()
-        except Exception:
-            pass  # Ignore cleanup errors
+        except Exception as e:
+            logger.debug("Session cleanup failed: %s", e)
 
     def list_sessions(self) -> list[dict]:
         """
@@ -686,8 +690,8 @@ class SessionManager:
                             "name": "Unknown",
                         }
                     )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Session listing failed: %s", e)
 
         return sessions
 
@@ -780,7 +784,8 @@ class SessionManager:
                     zones._zones[zone.name.lower()] = zone
 
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning("Session restore failed: %s", e)
             return False
 
     def clear_current_session(self) -> None:
