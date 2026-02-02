@@ -11,7 +11,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
-from zones import ZoneManager, ZoneExecutor, ZoneType, ZoneConfig
+from zones import ZoneManager, ZoneExecutor, ZoneType, ZoneConfig, parse_interval
 
 
 # Default layouts directory
@@ -89,7 +89,7 @@ class LayoutZone:
             width=data.get("width", 40),
             height=data.get("height", 20),
             command=data.get("command"),
-            interval=data.get("interval"),
+            interval=parse_interval(data.get("interval")),
             shell=data.get("shell"),
             path=data.get("path"),
             port=data.get("port"),

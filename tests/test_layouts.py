@@ -302,6 +302,51 @@ class TestLayoutZone:
         assert lz.bookmark == "w"
         assert lz.description == "Watch zone"
 
+    def test_from_dict_interval_string_seconds(self):
+        """Test parsing interval string with seconds suffix (bug #90)."""
+        d = {
+            "name": "WATCH",
+            "type": "watch",
+            "x": 0,
+            "y": 0,
+            "width": 80,
+            "height": 15,
+            "command": "uptime",
+            "interval": "10s",  # String with 's' suffix
+        }
+        lz = LayoutZone.from_dict(d)
+        assert lz.interval == 10.0  # Should be parsed to float
+
+    def test_from_dict_interval_string_minutes(self):
+        """Test parsing interval string with minutes suffix (bug #90)."""
+        d = {
+            "name": "WATCH",
+            "type": "watch",
+            "x": 0,
+            "y": 0,
+            "width": 80,
+            "height": 15,
+            "command": "df -h",
+            "interval": "5m",  # String with 'm' suffix
+        }
+        lz = LayoutZone.from_dict(d)
+        assert lz.interval == 300.0  # 5 minutes = 300 seconds
+
+    def test_from_dict_interval_numeric(self):
+        """Test that numeric interval values pass through correctly."""
+        d = {
+            "name": "WATCH",
+            "type": "watch",
+            "x": 0,
+            "y": 0,
+            "width": 80,
+            "height": 15,
+            "command": "uptime",
+            "interval": 30,  # Numeric value (YAML parses this as int)
+        }
+        lz = LayoutZone.from_dict(d)
+        assert lz.interval == 30.0  # Should be converted to float
+
     def test_roundtrip_serialization(self):
         """Test that to_dict and from_dict are inverse operations."""
         original = LayoutZone(

@@ -38,6 +38,7 @@ from zones import (
     load_pager_content,
     get_available_renderers,
     strip_ansi,
+    parse_interval,
 )
 from layouts import LayoutManager, install_default_layouts
 from external import (
@@ -2257,12 +2258,7 @@ class Application:
                     )
                 else:
                     # Interval-based mode (existing behavior)
-                    if watch_spec.endswith("s"):
-                        interval = float(watch_spec[:-1])
-                    elif watch_spec.endswith("m"):
-                        interval = float(watch_spec[:-1]) * 60
-                    else:
-                        interval = float(watch_spec)
+                    interval = parse_interval(watch_spec)
 
                     x = self.viewport.cursor.x
                     y = self.viewport.cursor.y
@@ -2290,13 +2286,7 @@ class Application:
 
                 # Parse optional interval
                 if len(args) > 5:
-                    interval_spec = args[5]
-                    if interval_spec.endswith("s"):
-                        interval = float(interval_spec[:-1])
-                    elif interval_spec.endswith("m"):
-                        interval = float(interval_spec[:-1]) * 60
-                    else:
-                        interval = float(interval_spec)
+                    interval = parse_interval(args[5])
 
                 x = self.viewport.cursor.x
                 y = self.viewport.cursor.y

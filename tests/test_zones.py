@@ -22,6 +22,7 @@ from zones import (
     strip_ansi,
     parse_ansi_line,
     parse_ansi_content,
+    parse_interval,
     get_border_style,
     set_border_style,
     list_border_styles,
@@ -150,6 +151,54 @@ class TestANSIParsing:
 
     def test_map_256_to_8_negative(self):
         assert _map_256_to_8(-1) == -1
+
+
+# =============================================================================
+# Interval Parsing Tests
+# =============================================================================
+
+
+class TestParseInterval:
+    """Tests for parse_interval utility function."""
+
+    def test_parse_interval_seconds_string(self):
+        """Test parsing seconds with 's' suffix."""
+        assert parse_interval("10s") == 10.0
+        assert parse_interval("5S") == 5.0  # Case insensitive
+        assert parse_interval("0.5s") == 0.5
+
+    def test_parse_interval_minutes_string(self):
+        """Test parsing minutes with 'm' suffix (converts to seconds)."""
+        assert parse_interval("5m") == 300.0
+        assert parse_interval("2M") == 120.0  # Case insensitive
+        assert parse_interval("0.5m") == 30.0
+
+    def test_parse_interval_plain_number_string(self):
+        """Test parsing plain number strings as seconds."""
+        assert parse_interval("30") == 30.0
+        assert parse_interval("10.5") == 10.5
+
+    def test_parse_interval_numeric_passthrough(self):
+        """Test that numeric values pass through unchanged."""
+        assert parse_interval(10) == 10.0
+        assert parse_interval(5.5) == 5.5
+        assert parse_interval(0) == 0.0
+
+    def test_parse_interval_none(self):
+        """Test that None returns None."""
+        assert parse_interval(None) is None
+
+    def test_parse_interval_empty_string(self):
+        """Test that empty string returns None."""
+        assert parse_interval("") is None
+        assert parse_interval("  ") is None
+
+    def test_parse_interval_invalid_raises(self):
+        """Test that invalid format raises ValueError."""
+        with pytest.raises(ValueError):
+            parse_interval("invalid")
+        with pytest.raises(ValueError):
+            parse_interval("10x")  # Unknown suffix
 
 
 # =============================================================================

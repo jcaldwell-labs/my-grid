@@ -33,6 +33,45 @@ def strip_ansi(text: str) -> str:
     return _ANSI_ESCAPE_RE.sub("", text)
 
 
+def parse_interval(value: str | int | float | None) -> float | None:
+    """
+    Parse an interval value from string or numeric input.
+
+    Supports formats:
+    - "10s" or "10S" -> 10.0 (seconds)
+    - "5m" or "5M" -> 300.0 (minutes to seconds)
+    - "30" -> 30.0 (plain number as seconds)
+    - 10 or 10.0 -> 10.0 (pass-through numeric)
+    - None -> None
+
+    Args:
+        value: Interval specification (string, int, float, or None)
+
+    Returns:
+        Interval in seconds as float, or None if input is None
+
+    Raises:
+        ValueError: If string format is invalid
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    # String parsing
+    value_str = str(value).strip()
+    if not value_str:
+        return None
+
+    if value_str.lower().endswith("s"):
+        return float(value_str[:-1])
+    elif value_str.lower().endswith("m"):
+        return float(value_str[:-1]) * 60
+    else:
+        return float(value_str)
+
+
 @dataclass
 class StyledChar:
     """A character with color information for ANSI-parsed content."""
