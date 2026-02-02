@@ -5,11 +5,14 @@ Layouts are YAML files that define zone configurations for quick workspace setup
 Stored in ~/.config/mygrid/layouts/ by default.
 """
 
+import logging
 import os
 import yaml
 from pathlib import Path
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from zones import ZoneManager, ZoneExecutor, ZoneType, ZoneConfig, parse_interval
 
@@ -197,7 +200,8 @@ class LayoutManager:
         try:
             yaml_str = path.read_text(encoding="utf-8")
             return Layout.from_yaml(yaml_str)
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to load layout '%s': %s", name, e)
             return None
 
     def delete(self, name: str) -> bool:
