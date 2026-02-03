@@ -168,6 +168,8 @@ Quick navigation using vim-style marks. 36 slots available (a-z, 0-9).
 |-----|--------|
 | `m` + key | Set bookmark at cursor position |
 | `'` + key | Jump to bookmark |
+| `]` | Cycle to next bookmark (spatial order) |
+| `[` | Cycle to previous bookmark |
 
 **Commands:**
 | Command | Description |
@@ -495,6 +497,8 @@ zones:
 | `:` or `/`      | Enter command mode      |
 | `m` + key       | Set bookmark (a-z, 0-9) |
 | `'` + key       | Jump to bookmark        |
+| `]`             | Next bookmark (spatial) |
+| `[`             | Previous bookmark       |
 | `Esc`           | Exit current mode       |
 | `g` / `G`       | Toggle major/minor grid |
 | `0`             | Toggle origin marker    |

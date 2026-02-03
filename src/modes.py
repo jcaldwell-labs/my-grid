@@ -78,6 +78,60 @@ class BookmarkManager:
         """Get all bookmarks as (key, bookmark) pairs, sorted by key."""
         return sorted(self._bookmarks.items())
 
+    def _sorted_spatial(self) -> list[tuple[str, Bookmark]]:
+        """Get bookmarks sorted by spatial position (Y-then-X, top-to-bottom, left-to-right)."""
+        return sorted(self._bookmarks.items(), key=lambda item: (item[1].y, item[1].x))
+
+    def get_next_spatial(
+        self, current_x: int, current_y: int
+    ) -> tuple[str, Bookmark] | None:
+        """
+        Get the next bookmark in spatial order (Y-then-X).
+        Wraps to first bookmark if at end.
+        Returns (key, bookmark) or None if no bookmarks.
+        """
+        if not self._bookmarks:
+            return None
+
+        sorted_marks = self._sorted_spatial()
+
+        # Find first bookmark after current position
+        for key, bm in sorted_marks:
+            if (bm.y, bm.x) > (current_y, current_x):
+                return (key, bm)
+
+        # Wrap to first
+        return sorted_marks[0]
+
+    def get_prev_spatial(
+        self, current_x: int, current_y: int
+    ) -> tuple[str, Bookmark] | None:
+        """
+        Get the previous bookmark in spatial order (Y-then-X).
+        Wraps to last bookmark if at start.
+        Returns (key, bookmark) or None if no bookmarks.
+        """
+        if not self._bookmarks:
+            return None
+
+        sorted_marks = self._sorted_spatial()
+
+        # Find last bookmark before current position (iterate reversed)
+        for key, bm in reversed(sorted_marks):
+            if (bm.y, bm.x) < (current_y, current_x):
+                return (key, bm)
+
+        # Wrap to last
+        return sorted_marks[-1]
+
+    def get_spatial_index(self, key: str) -> int:
+        """Get the 0-based index of a bookmark in spatial order."""
+        sorted_marks = self._sorted_spatial()
+        for i, (k, _) in enumerate(sorted_marks):
+            if k == key:
+                return i
+        return 0
+
     def to_dict(self) -> dict:
         """Serialize bookmarks for JSON export."""
         return {
@@ -587,6 +641,35 @@ class ModeStateMachine:
                 total = len(self.search_state.matches)
                 return ModeResult(message=f"[/{self.search_state.term}] {idx}/{total}")
             return ModeResult(message="No matches")
+
+        # Bookmark cycling (] = next, [ = prev in spatial order)
+        if event.char == "]":
+            cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+            result = self.bookmarks.get_next_spatial(cx, cy)
+            if result:
+                key, bookmark = result
+                self.viewport.cursor.set(bookmark.x, bookmark.y)
+                self.viewport.ensure_cursor_visible(margin=self.config.scroll_margin)
+                total = len(self.bookmarks.list_all())
+                idx = self.bookmarks.get_spatial_index(key) + 1
+                return ModeResult(
+                    message=f"[{idx}/{total}] '{key}' ({bookmark.x},{bookmark.y})"
+                )
+            return ModeResult(message="No bookmarks - press m to set")
+
+        if event.char == "[":
+            cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
+            result = self.bookmarks.get_prev_spatial(cx, cy)
+            if result:
+                key, bookmark = result
+                self.viewport.cursor.set(bookmark.x, bookmark.y)
+                self.viewport.ensure_cursor_visible(margin=self.config.scroll_margin)
+                total = len(self.bookmarks.list_all())
+                idx = self.bookmarks.get_spatial_index(key) + 1
+                return ModeResult(
+                    message=f"[{idx}/{total}] '{key}' ({bookmark.x},{bookmark.y})"
+                )
+            return ModeResult(message="No bookmarks - press m to set")
 
         return ModeResult(handled=False)
 
