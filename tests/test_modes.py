@@ -855,6 +855,95 @@ class TestBookmarkManager:
         assert bm_b.x == 30
         assert bm_b.y == 40
 
+    def test_get_next_spatial_basic(self):
+        """Test getting next bookmark in spatial order (Y-then-X)."""
+        mgr = BookmarkManager()
+        mgr.set("a", 0, 0)  # Top-left
+        mgr.set("b", 10, 0)  # Same row, right
+        mgr.set("c", 0, 5)  # Next row
+
+        # From origin, next should be 'b' (same row, to the right)
+        result = mgr.get_next_spatial(0, 0)
+        assert result is not None
+        assert result[0] == "b"
+
+        # From 'b', next should be 'c' (next row)
+        result = mgr.get_next_spatial(10, 0)
+        assert result is not None
+        assert result[0] == "c"
+
+    def test_get_next_spatial_wraps(self):
+        """Test that next wraps to first when at end."""
+        mgr = BookmarkManager()
+        mgr.set("a", 0, 0)
+        mgr.set("b", 10, 10)
+
+        # From past the last bookmark, should wrap to first
+        result = mgr.get_next_spatial(20, 20)
+        assert result is not None
+        assert result[0] == "a"
+
+    def test_get_prev_spatial_basic(self):
+        """Test getting previous bookmark in spatial order."""
+        mgr = BookmarkManager()
+        mgr.set("a", 0, 0)
+        mgr.set("b", 10, 0)
+        mgr.set("c", 0, 5)
+
+        # From 'c', prev should be 'b'
+        result = mgr.get_prev_spatial(0, 5)
+        assert result is not None
+        assert result[0] == "b"
+
+        # From 'b', prev should be 'a'
+        result = mgr.get_prev_spatial(10, 0)
+        assert result is not None
+        assert result[0] == "a"
+
+    def test_get_prev_spatial_wraps(self):
+        """Test that prev wraps to last when at start."""
+        mgr = BookmarkManager()
+        mgr.set("a", 10, 10)
+        mgr.set("b", 20, 20)
+
+        # From before first bookmark, should wrap to last
+        result = mgr.get_prev_spatial(0, 0)
+        assert result is not None
+        assert result[0] == "b"
+
+    def test_spatial_cycling_empty(self):
+        """Test cycling returns None when no bookmarks."""
+        mgr = BookmarkManager()
+
+        assert mgr.get_next_spatial(0, 0) is None
+        assert mgr.get_prev_spatial(0, 0) is None
+
+    def test_spatial_cycling_single(self):
+        """Test cycling with single bookmark returns it."""
+        mgr = BookmarkManager()
+        mgr.set("a", 50, 50)
+
+        # Both next and prev should return the single bookmark
+        result = mgr.get_next_spatial(0, 0)
+        assert result is not None
+        assert result[0] == "a"
+
+        result = mgr.get_prev_spatial(100, 100)
+        assert result is not None
+        assert result[0] == "a"
+
+    def test_get_spatial_index(self):
+        """Test getting index in spatial order."""
+        mgr = BookmarkManager()
+        mgr.set("z", 0, 0)  # First spatially (despite key)
+        mgr.set("a", 10, 0)  # Second spatially
+        mgr.set("m", 0, 5)  # Third spatially
+
+        # Index should be based on spatial order, not key order
+        assert mgr.get_spatial_index("z") == 0
+        assert mgr.get_spatial_index("a") == 1
+        assert mgr.get_spatial_index("m") == 2
+
 
 class TestMarkMode:
     """Tests for MARK_SET and MARK_JUMP modes."""
@@ -957,6 +1046,115 @@ class TestMarkMode:
         assert result.mode_changed
         assert self.sm.mode == Mode.NAV
         assert "Cancelled" in result.message
+
+
+class TestBookmarkCycling:
+    """Tests for bookmark cycling with [ and ] keys."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.canvas = Canvas()
+        self.viewport = Viewport(width=80, height=24)
+        self.sm = ModeStateMachine(self.canvas, self.viewport)
+
+    def test_next_bookmark_basic(self):
+        """Test ] key cycles to next bookmark in spatial order."""
+        # Set bookmarks in non-alphabetical spatial order
+        self.sm.bookmarks.set("z", 0, 0)  # First spatially
+        self.sm.bookmarks.set("a", 10, 0)  # Second spatially
+        self.sm.bookmarks.set("m", 0, 10)  # Third spatially
+
+        # Start at origin
+        self.viewport.cursor.set(0, 0)
+
+        # Press ] - should go to 'a' (next after current position)
+        result = self.sm.process(char_event("]"))
+
+        assert self.viewport.cursor.x == 10
+        assert self.viewport.cursor.y == 0
+        assert "[2/3]" in result.message
+        assert "'a'" in result.message
+
+    def test_prev_bookmark_basic(self):
+        """Test [ key cycles to previous bookmark in spatial order."""
+        self.sm.bookmarks.set("a", 0, 0)
+        self.sm.bookmarks.set("b", 10, 10)
+        self.sm.bookmarks.set("c", 20, 20)
+
+        # Start at last bookmark
+        self.viewport.cursor.set(20, 20)
+
+        # Press [ - should go to 'b' (previous)
+        result = self.sm.process(char_event("["))
+
+        assert self.viewport.cursor.x == 10
+        assert self.viewport.cursor.y == 10
+        assert "[2/3]" in result.message
+        assert "'b'" in result.message
+
+    def test_next_bookmark_wraps(self):
+        """Test ] wraps from last to first bookmark."""
+        self.sm.bookmarks.set("a", 0, 0)
+        self.sm.bookmarks.set("b", 10, 10)
+
+        # Start past last bookmark
+        self.viewport.cursor.set(50, 50)
+
+        # Press ] - should wrap to first
+        result = self.sm.process(char_event("]"))
+
+        assert self.viewport.cursor.x == 0
+        assert self.viewport.cursor.y == 0
+        assert "[1/2]" in result.message
+
+    def test_prev_bookmark_wraps(self):
+        """Test [ wraps from first to last bookmark."""
+        self.sm.bookmarks.set("a", 10, 10)
+        self.sm.bookmarks.set("b", 20, 20)
+
+        # Start before first bookmark
+        self.viewport.cursor.set(0, 0)
+
+        # Press [ - should wrap to last
+        result = self.sm.process(char_event("["))
+
+        assert self.viewport.cursor.x == 20
+        assert self.viewport.cursor.y == 20
+        assert "[2/2]" in result.message
+
+    def test_cycling_no_bookmarks(self):
+        """Test cycling shows helpful message when no bookmarks."""
+        result = self.sm.process(char_event("]"))
+
+        assert "No bookmarks" in result.message
+        assert "press m to set" in result.message
+
+        result = self.sm.process(char_event("["))
+
+        assert "No bookmarks" in result.message
+
+    def test_cycling_single_bookmark(self):
+        """Test cycling with single bookmark always returns it."""
+        self.sm.bookmarks.set("x", 50, 50)
+        self.viewport.cursor.set(0, 0)
+
+        result = self.sm.process(char_event("]"))
+
+        assert self.viewport.cursor.x == 50
+        assert self.viewport.cursor.y == 50
+        assert "[1/1]" in result.message
+
+    def test_status_message_format(self):
+        """Test status message format: [idx/total] 'key' (x,y)."""
+        self.sm.bookmarks.set("f", 100, 200)
+        self.viewport.cursor.set(0, 0)
+
+        result = self.sm.process(char_event("]"))
+
+        # Check format: [1/1] 'f' (100,200)
+        assert "[1/1]" in result.message
+        assert "'f'" in result.message
+        assert "(100,200)" in result.message
 
 
 class TestDrawMode:
