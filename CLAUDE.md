@@ -572,6 +572,37 @@ python -m pytest tests/test_modes.py::TestModeStateMachine::test_edit_mode_typin
 
 ---
 
+## Code Style
+
+### Formatter
+
+Use `ruff` for consistent Python formatting:
+
+```bash
+# Check formatting (no changes)
+./venv/bin/ruff format --check src/ tests/
+
+# Auto-fix formatting
+./venv/bin/ruff format src/ tests/
+
+# Run linter
+./venv/bin/ruff check src/ tests/
+```
+
+### Policy
+
+- **New code**: Format with ruff before committing
+- **PRs**: Formatting issues flagged in review (CI runs `ruff format --check`)
+- **Large reformats**: Submit as separate PRs, not mixed with feature changes
+
+### CI Integration
+
+The CI workflow runs ruff in the `lint` job (advisory, non-blocking). This checks:
+- `ruff check` - linting rules
+- `ruff format --check` - formatting consistency
+
+---
+
 ## API Server (Headless Control)
 
 my-grid can be controlled by external processes via TCP or Unix FIFO.

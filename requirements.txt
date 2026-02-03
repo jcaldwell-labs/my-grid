@@ -3,3 +3,6 @@ windows-curses>=2.3.0; sys_platform == 'win32'
 pyyaml>=6.0
 pyte>=0.8.0  # Terminal emulator for PTY zones
 mcp>=1.0.0  # Model Context Protocol for AI agent integration
+
+# Development tools
+ruff>=0.4.0  # Formatter and linter
