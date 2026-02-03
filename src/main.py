@@ -460,6 +460,11 @@ class Application:
                 if key == curses.KEY_RESIZE:
                     continue
 
+                # Clear any active message on keypress (user wants to act)
+                if self._status_message_frames > 0:
+                    self._status_message_frames = 0
+                    self._status_message = None
+
                 # Handle mouse events
                 if key == curses.KEY_MOUSE:
                     self._handle_mouse_event()
@@ -1288,7 +1293,7 @@ class Application:
     def _cmd_search(self, args: list[str]) -> ModeResult:
         """Search for text: search PATTERN"""
         if not args:
-            return ModeResult(message="Usage: search PATTERN")
+            return ModeResult(message="Usage: search PATTERN", message_frames=120)
         pattern = " ".join(args)
         self._do_search(pattern)
         return ModeResult()
@@ -1650,7 +1655,7 @@ class Application:
 
     def _cmd_import(self, args: list[str]) -> ModeResult:
         if not args:
-            return ModeResult(message="Usage: import <filename>")
+            return ModeResult(message="Usage: import <filename>", message_frames=120)
         self.load_file(args[0])
         return ModeResult()
 
@@ -1659,7 +1664,7 @@ class Application:
         from zones import get_border_chars
 
         if len(args) < 2:
-            return ModeResult(message="Usage: rect WIDTH HEIGHT [char]")
+            return ModeResult(message="Usage: rect WIDTH HEIGHT [char]", message_frames=120)
         try:
             w, h = int(args[0]), int(args[1])
             char = args[2] if len(args) > 2 else None
@@ -1690,7 +1695,7 @@ class Application:
     def _cmd_line(self, args: list[str]) -> ModeResult:
         """Draw line: line X2 Y2 [CHAR]"""
         if len(args) < 2:
-            return ModeResult(message="Usage: line X2 Y2 [char]")
+            return ModeResult(message="Usage: line X2 Y2 [char]", message_frames=120)
         try:
             x2, y2 = int(args[0]), int(args[1])
             char = args[2] if len(args) > 2 else "*"
@@ -1730,7 +1735,7 @@ class Application:
     def _cmd_text(self, args: list[str]) -> ModeResult:
         """Write text: text MESSAGE"""
         if not args:
-            return ModeResult(message="Usage: text MESSAGE")
+            return ModeResult(message="Usage: text MESSAGE", message_frames=120)
         text = " ".join(args)
         cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
 
@@ -1754,7 +1759,7 @@ class Application:
             :fill W H CHAR       - Fill region at cursor with dimensions WxH
         """
         if len(args) < 3:
-            return ModeResult(message="Usage: fill [X Y] W H CHAR")
+            return ModeResult(message="Usage: fill [X Y] W H CHAR", message_frames=120)
 
         try:
             # Check if first two args are coordinates or dimensions
@@ -1794,7 +1799,7 @@ class Application:
             return ModeResult(message=f"Filled {w}x{h} region with '{char}'")
 
         except ValueError:
-            return ModeResult(message="Usage: fill [X Y] W H CHAR")
+            return ModeResult(message="Usage: fill [X Y] W H CHAR", message_frames=120)
 
     def _cmd_color(self, args: list[str]) -> ModeResult:
         """
@@ -1829,7 +1834,7 @@ class Application:
         # Apply color to region
         if subcmd == "apply":
             if len(args) < 3:
-                return ModeResult(message="Usage: color apply W H")
+                return ModeResult(message="Usage: color apply W H", message_frames=120)
             try:
                 w, h = int(args[1]), int(args[2])
                 fg = self.state_machine.draw_fg
@@ -1841,7 +1846,7 @@ class Application:
                 self.project.mark_dirty()
                 return ModeResult(message=f"Applied color to {w}x{h} region")
             except ValueError:
-                return ModeResult(message="Usage: color apply W H")
+                return ModeResult(message="Usage: color apply W H", message_frames=120)
 
         # Set foreground (and optionally background)
         fg = parse_color(args[0])
@@ -1950,7 +1955,7 @@ class Application:
                 self.renderer.grid.minor_interval = minor
                 return ModeResult(message=f"Grid interval: major={major} minor={minor}")
             except ValueError:
-                return ModeResult(message="Usage: grid interval MAJOR [MINOR]")
+                return ModeResult(message="Usage: grid interval MAJOR [MINOR]", message_frames=120)
 
         # Try as a number (legacy: set major interval)
         else:
@@ -1960,7 +1965,8 @@ class Application:
                 return ModeResult(message=f"Major interval: {interval}")
             except ValueError:
                 return ModeResult(
-                    message="Usage: grid [major|minor|lines|markers|dots|off|rulers|labels|interval N]"
+                    message="Usage: grid [major|minor|lines|markers|dots|off|rulers|labels|interval N]",
+                    message_frames=120,
                 )
 
     def _cmd_ydir(self, args: list[str]) -> ModeResult:
@@ -1978,7 +1984,7 @@ class Application:
             self.viewport.y_direction = YAxisDirection.DOWN
             return ModeResult(message="Y direction: DOWN (screen)")
         else:
-            return ModeResult(message="Usage: ydir up|down")
+            return ModeResult(message="Usage: ydir up|down", message_frames=120)
 
     def _cmd_status(self, args: list[str]) -> ModeResult:
         """Return current state as JSON."""
@@ -2033,7 +2039,8 @@ class Application:
         """
         if not args:
             return ModeResult(
-                message="Usage: zone create|delete|goto|pipe|watch|refresh|..."
+                message="Usage: zone create|delete|goto|pipe|watch|refresh|...",
+                message_frames=120,
             )
 
         subcmd = args[0].lower()
@@ -2042,7 +2049,7 @@ class Application:
         # :zone create NAME here W H [desc]
         if subcmd == "create":
             if len(args) < 5:
-                return ModeResult(message="Usage: zone create NAME X Y W H [desc]")
+                return ModeResult(message="Usage: zone create NAME X Y W H [desc]", message_frames=120)
             name = args[1]
             if args[2].lower() == "here":
                 x = self.viewport.cursor.x
@@ -2052,7 +2059,7 @@ class Application:
                     h = int(args[4])
                     desc = " ".join(args[5:]) if len(args) > 5 else ""
                 except (ValueError, IndexError):
-                    return ModeResult(message="Usage: zone create NAME here W H [desc]")
+                    return ModeResult(message="Usage: zone create NAME here W H [desc]", message_frames=120)
             else:
                 try:
                     x = int(args[2])
@@ -2061,7 +2068,7 @@ class Application:
                     h = int(args[5])
                     desc = " ".join(args[6:]) if len(args) > 6 else ""
                 except (ValueError, IndexError):
-                    return ModeResult(message="Usage: zone create NAME X Y W H [desc]")
+                    return ModeResult(message="Usage: zone create NAME X Y W H [desc]", message_frames=120)
 
             try:
                 self.zone_manager.create(name, x, y, w, h, description=desc)
@@ -2073,7 +2080,7 @@ class Application:
         # :zone delete NAME
         elif subcmd == "delete":
             if len(args) < 2:
-                return ModeResult(message="Usage: zone delete NAME")
+                return ModeResult(message="Usage: zone delete NAME", message_frames=120)
             name = args[1]
 
             # Get zone before deleting to clear its canvas region
@@ -2094,7 +2101,7 @@ class Application:
         # :zone goto NAME
         elif subcmd == "goto":
             if len(args) < 2:
-                return ModeResult(message="Usage: zone goto NAME")
+                return ModeResult(message="Usage: zone goto NAME", message_frames=120)
             name = args[1]
             zone = self.zone_manager.get(name)
             if zone is None:
@@ -2131,7 +2138,7 @@ class Application:
         # :zone rename OLD NEW
         elif subcmd == "rename":
             if len(args) < 3:
-                return ModeResult(message="Usage: zone rename OLD NEW")
+                return ModeResult(message="Usage: zone rename OLD NEW", message_frames=120)
             if self.zone_manager.rename(args[1], args[2]):
                 self.project.mark_dirty()
                 return ModeResult(message=f"Renamed '{args[1]}' to '{args[2]}'")
@@ -2142,7 +2149,7 @@ class Application:
         # :zone resize NAME W H
         elif subcmd == "resize":
             if len(args) < 4:
-                return ModeResult(message="Usage: zone resize NAME W H")
+                return ModeResult(message="Usage: zone resize NAME W H", message_frames=120)
             try:
                 w, h = int(args[2]), int(args[3])
                 if self.zone_manager.resize(args[1], w, h):
@@ -2155,7 +2162,7 @@ class Application:
         # :zone move NAME X Y
         elif subcmd == "move":
             if len(args) < 4:
-                return ModeResult(message="Usage: zone move NAME X Y")
+                return ModeResult(message="Usage: zone move NAME X Y", message_frames=120)
             try:
                 x, y = int(args[2]), int(args[3])
                 if self.zone_manager.move(args[1], x, y):
@@ -2168,7 +2175,7 @@ class Application:
         # :zone link NAME BOOKMARK
         elif subcmd == "link":
             if len(args) < 3:
-                return ModeResult(message="Usage: zone link NAME BOOKMARK")
+                return ModeResult(message="Usage: zone link NAME BOOKMARK", message_frames=120)
             bookmark = args[2] if args[2] != "none" else None
             if self.zone_manager.set_bookmark(args[1], bookmark):
                 self.project.mark_dirty()
@@ -2182,7 +2189,7 @@ class Application:
         # :zone border NAME [style]
         elif subcmd == "border":
             if len(args) < 2:
-                return ModeResult(message="Usage: zone border NAME [style]")
+                return ModeResult(message="Usage: zone border NAME [style]", message_frames=120)
             zone = self.zone_manager.get(args[1])
             if zone is None:
                 return ModeResult(message=f"Zone '{args[1]}' not found")
@@ -2199,7 +2206,7 @@ class Application:
         # :zone pipe NAME W H CMD
         elif subcmd == "pipe":
             if len(args) < 5:
-                return ModeResult(message="Usage: zone pipe NAME W H COMMAND")
+                return ModeResult(message="Usage: zone pipe NAME W H COMMAND", message_frames=120)
             name = args[1]
             try:
                 w, h = int(args[2]), int(args[3])
@@ -2225,7 +2232,8 @@ class Application:
         elif subcmd == "watch":
             if len(args) < 6:
                 return ModeResult(
-                    message="Usage: zone watch NAME W H (INTERVAL|watch:PATH) COMMAND"
+                    message="Usage: zone watch NAME W H (INTERVAL|watch:PATH) COMMAND",
+                    message_frames=120,
                 )
             name = args[1]
             try:
@@ -2277,7 +2285,7 @@ class Application:
         # :zone http NAME W H URL [INTERVAL]
         elif subcmd == "http":
             if len(args) < 5:
-                return ModeResult(message="Usage: zone http NAME W H URL [interval]")
+                return ModeResult(message="Usage: zone http NAME W H URL [interval]", message_frames=120)
             name = args[1]
             try:
                 w, h = int(args[2]), int(args[3])
@@ -2309,7 +2317,7 @@ class Application:
         # :zone refresh NAME
         elif subcmd == "refresh":
             if len(args) < 2:
-                return ModeResult(message="Usage: zone refresh NAME")
+                return ModeResult(message="Usage: zone refresh NAME", message_frames=120)
             if self.zone_executor.refresh_zone(args[1]):
                 zone = self.zone_manager.get(args[1])
                 return ModeResult(
@@ -2320,7 +2328,7 @@ class Application:
         # :zone pause NAME
         elif subcmd == "pause":
             if len(args) < 2:
-                return ModeResult(message="Usage: zone pause NAME")
+                return ModeResult(message="Usage: zone pause NAME", message_frames=120)
             if self.zone_executor.pause_zone(args[1]):
                 return ModeResult(message=f"Paused zone '{args[1]}'")
             return ModeResult(message=f"Zone '{args[1]}' not found or not a watch zone")
@@ -2328,7 +2336,7 @@ class Application:
         # :zone resume NAME
         elif subcmd == "resume":
             if len(args) < 2:
-                return ModeResult(message="Usage: zone resume NAME")
+                return ModeResult(message="Usage: zone resume NAME", message_frames=120)
             if self.zone_executor.resume_zone(args[1]):
                 return ModeResult(message=f"Resumed zone '{args[1]}'")
             return ModeResult(message=f"Zone '{args[1]}' not found or not a watch zone")
@@ -2336,7 +2344,7 @@ class Application:
         # :zone buffer NAME
         elif subcmd == "buffer":
             if len(args) < 2:
-                return ModeResult(message="Usage: zone buffer NAME")
+                return ModeResult(message="Usage: zone buffer NAME", message_frames=120)
             zone = self.zone_manager.get(args[1])
             if zone is None:
                 return ModeResult(message=f"Zone '{args[1]}' not found")
@@ -2349,7 +2357,7 @@ class Application:
         # :zone export NAME [FILE]
         elif subcmd == "export":
             if len(args) < 2:
-                return ModeResult(message="Usage: zone export NAME [FILE]")
+                return ModeResult(message="Usage: zone export NAME [FILE]", message_frames=120)
             zone = self.zone_manager.get(args[1])
             if zone is None:
                 return ModeResult(message=f"Zone '{args[1]}' not found")
@@ -2382,7 +2390,7 @@ class Application:
                 )
 
             if len(args) < 4:
-                return ModeResult(message="Usage: zone pty NAME W H [SHELL]")
+                return ModeResult(message="Usage: zone pty NAME W H [SHELL]", message_frames=120)
             name = args[1]
             try:
                 w, h = int(args[2]), int(args[3])
@@ -2410,7 +2418,7 @@ class Application:
         # :zone send NAME TEXT
         elif subcmd == "send":
             if len(args) < 3:
-                return ModeResult(message="Usage: zone send NAME TEXT")
+                return ModeResult(message="Usage: zone send NAME TEXT", message_frames=120)
             name = args[1]
             text = " ".join(args[2:])
             # Handle escape sequences
@@ -2423,7 +2431,7 @@ class Application:
         # :zone focus NAME
         elif subcmd == "focus":
             if len(args) < 2:
-                return ModeResult(message="Usage: zone focus NAME")
+                return ModeResult(message="Usage: zone focus NAME", message_frames=120)
             name = args[1]
             zone = self.zone_manager.get(name)
             if not zone:
@@ -2451,7 +2459,7 @@ class Application:
                 )
 
             if len(args) < 5:
-                return ModeResult(message="Usage: zone fifo NAME W H PATH")
+                return ModeResult(message="Usage: zone fifo NAME W H PATH", message_frames=120)
             name = args[1]
             try:
                 w, h = int(args[2]), int(args[3])
@@ -2485,7 +2493,7 @@ class Application:
         # :zone socket NAME W H PORT
         elif subcmd == "socket":
             if len(args) < 5:
-                return ModeResult(message="Usage: zone socket NAME W H PORT")
+                return ModeResult(message="Usage: zone socket NAME W H PORT", message_frames=120)
             name = args[1]
             try:
                 w, h = int(args[2]), int(args[3])
@@ -2520,7 +2528,8 @@ class Application:
         elif subcmd == "pager":
             if len(args) < 5:
                 return ModeResult(
-                    message="Usage: zone pager NAME W H FILE [--renderer glow|bat|plain] [--wsl]"
+                    message="Usage: zone pager NAME W H FILE [--renderer glow|bat|plain] [--wsl]",
+                    message_frames=120,
                 )
             name = args[1]
             try:
@@ -2585,7 +2594,7 @@ class Application:
         # :zone scroll NAME +/-N|top|bottom
         elif subcmd == "scroll":
             if len(args) < 3:
-                return ModeResult(message="Usage: zone scroll NAME +/-N|top|bottom")
+                return ModeResult(message="Usage: zone scroll NAME +/-N|top|bottom", message_frames=120)
             name = args[1]
             zone = self.zone_manager.get(name)
             if zone is None:
@@ -2627,7 +2636,7 @@ class Application:
         # :zone search NAME TERM
         elif subcmd == "search":
             if len(args) < 3:
-                return ModeResult(message="Usage: zone search NAME TERM")
+                return ModeResult(message="Usage: zone search NAME TERM", message_frames=120)
             name = args[1]
             zone = self.zone_manager.get(name)
             if zone is None:
@@ -2658,7 +2667,7 @@ class Application:
         # :zone reload NAME
         elif subcmd == "reload":
             if len(args) < 2:
-                return ModeResult(message="Usage: zone reload NAME")
+                return ModeResult(message="Usage: zone reload NAME", message_frames=120)
             name = args[1]
             zone = self.zone_manager.get(name)
             if zone is None:
@@ -2686,7 +2695,8 @@ class Application:
 
         else:
             return ModeResult(
-                message="Usage: zone create|delete|goto|pipe|watch|pager|pty|fifo|socket|..."
+                message="Usage: zone create|delete|goto|pipe|watch|pager|pty|fifo|socket|...",
+                message_frames=120,
             )
 
     def _cmd_shader(self, args: list[str]) -> ModeResult:
@@ -2706,7 +2716,7 @@ class Application:
         Note: Shaders must be started with --control-port flag
         """
         if len(args) < 2:
-            return ModeResult(message="Usage: shader ZONE_NAME param PARAM VALUE")
+            return ModeResult(message="Usage: shader ZONE_NAME param PARAM VALUE", message_frames=120)
 
         zone_name = args[0]
         zone = self.zone_manager.get(zone_name)
@@ -2729,7 +2739,7 @@ class Application:
 
         if subcmd == "port":
             if len(args) < 3:
-                return ModeResult(message="Usage: shader ZONE port PORT")
+                return ModeResult(message="Usage: shader ZONE port PORT", message_frames=120)
             try:
                 zone._control_port = int(args[2])
                 return ModeResult(
@@ -2740,7 +2750,7 @@ class Application:
 
         elif subcmd == "param":
             if len(args) < 4:
-                return ModeResult(message="Usage: shader ZONE param PARAM VALUE")
+                return ModeResult(message="Usage: shader ZONE param PARAM VALUE", message_frames=120)
 
             if not zone._control_port:
                 return ModeResult(
@@ -2786,7 +2796,7 @@ class Application:
             return ModeResult(message=f"Zone: {zone_name}{port_info}")
 
         else:
-            return ModeResult(message="Usage: shader ZONE param PARAM VALUE")
+            return ModeResult(message="Usage: shader ZONE param PARAM VALUE", message_frames=120)
 
     def _cmd_undo(self, args: list[str]) -> ModeResult:
         """Undo the last canvas operation.
@@ -2867,7 +2877,7 @@ class Application:
             :box TEXT...           - Draw box with default style (ansi)
         """
         if not args:
-            return ModeResult(message="Usage: box [list | STYLE] TEXT...")
+            return ModeResult(message="Usage: box [list | STYLE] TEXT...", message_frames=120)
 
         # Check if boxes is available
         if not tool_available("boxes"):
@@ -2893,7 +2903,7 @@ class Application:
             content = " ".join(args)
 
         if not content:
-            return ModeResult(message="Usage: box [STYLE] TEXT...")
+            return ModeResult(message="Usage: box [STYLE] TEXT...", message_frames=120)
 
         # Generate box
         result = draw_box(content, style)
@@ -2917,7 +2927,7 @@ class Application:
             :figlet -f FONT TEXT   - Draw with specific font
         """
         if not args:
-            return ModeResult(message="Usage: figlet [-f FONT] TEXT...")
+            return ModeResult(message="Usage: figlet [-f FONT] TEXT...", message_frames=120)
 
         # Check if figlet is available
         if not tool_available("figlet"):
@@ -2939,7 +2949,7 @@ class Application:
 
         text = " ".join(args[text_start:])
         if not text:
-            return ModeResult(message="Usage: figlet [-f FONT] TEXT...")
+            return ModeResult(message="Usage: figlet [-f FONT] TEXT...", message_frames=120)
 
         # Generate figlet
         result = draw_figlet(text, font)
@@ -2961,7 +2971,7 @@ class Application:
             :pipe COMMAND          - Execute command, write stdout at cursor
         """
         if not args:
-            return ModeResult(message="Usage: pipe COMMAND...")
+            return ModeResult(message="Usage: pipe COMMAND...", message_frames=120)
 
         command = " ".join(args)
 
@@ -3076,7 +3086,8 @@ class Application:
                     index = int(args[1])
                 except ValueError:
                     return ModeResult(
-                        message="Usage: session restore [N] (N = session index)"
+                        message="Usage: session restore [N] (N = session index)",
+                        message_frames=120,
                     )
 
             if index < 0 or index >= len(sessions):
@@ -3158,7 +3169,7 @@ class Application:
             :layout info NAME         - Show layout details
         """
         if not args:
-            return ModeResult(message="Usage: layout list|load|save|delete|info ...")
+            return ModeResult(message="Usage: layout list|load|save|delete|info ...", message_frames=120)
 
         subcmd = args[0].lower()
 
@@ -3181,7 +3192,7 @@ class Application:
         # :layout load NAME [--clear]
         elif subcmd == "load":
             if len(args) < 2:
-                return ModeResult(message="Usage: layout load NAME [--clear]")
+                return ModeResult(message="Usage: layout load NAME [--clear]", message_frames=120)
             name = args[1]
             clear_existing = "--clear" in args
 
@@ -3227,14 +3238,14 @@ class Application:
         # :layout reload NAME - Shortcut for load --clear
         elif subcmd == "reload":
             if len(args) < 2:
-                return ModeResult(message="Usage: layout reload NAME")
+                return ModeResult(message="Usage: layout reload NAME", message_frames=120)
             # Re-invoke with --clear flag
             return self._cmd_layout(["load", args[1], "--clear"])
 
         # :layout save NAME [DESCRIPTION]
         elif subcmd == "save":
             if len(args) < 2:
-                return ModeResult(message="Usage: layout save NAME [DESCRIPTION]")
+                return ModeResult(message="Usage: layout save NAME [DESCRIPTION]", message_frames=120)
             name = args[1]
             description = " ".join(args[2:]) if len(args) > 2 else ""
 
@@ -3254,7 +3265,7 @@ class Application:
         # :layout delete NAME
         elif subcmd == "delete":
             if len(args) < 2:
-                return ModeResult(message="Usage: layout delete NAME")
+                return ModeResult(message="Usage: layout delete NAME", message_frames=120)
             name = args[1]
             if self.layout_manager.delete(name):
                 return ModeResult(message=f"Deleted layout '{name}'")
@@ -3263,7 +3274,7 @@ class Application:
         # :layout info NAME
         elif subcmd == "info":
             if len(args) < 2:
-                return ModeResult(message="Usage: layout info NAME")
+                return ModeResult(message="Usage: layout info NAME", message_frames=120)
             name = args[1]
             layout = self.layout_manager.load(name)
             if not layout:
@@ -3279,7 +3290,7 @@ class Application:
             )
 
         else:
-            return ModeResult(message="Usage: layout list|load|save|delete|info ...")
+            return ModeResult(message="Usage: layout list|load|save|delete|info ...", message_frames=120)
 
     def _cmd_yank(self, args: list[str]) -> ModeResult:
         """
@@ -3302,7 +3313,7 @@ class Application:
         # :yank zone NAME
         if subcmd == "zone":
             if len(args) < 2:
-                return ModeResult(message="Usage: yank zone NAME")
+                return ModeResult(message="Usage: yank zone NAME", message_frames=120)
             name = args[1]
             zone = self.zone_manager.get(name)
             if not zone:
@@ -3324,7 +3335,8 @@ class Application:
                 h = int(args[1]) if len(args) > 1 else 1
             except ValueError:
                 return ModeResult(
-                    message="Usage: yank W H | yank zone NAME | yank system"
+                    message="Usage: yank W H | yank zone NAME | yank system",
+                    message_frames=120,
                 )
 
             cx, cy = self.viewport.cursor.x, self.viewport.cursor.y
@@ -3427,7 +3439,8 @@ class Application:
                 return ModeResult(message=str(e))
 
         return ModeResult(
-            message="Usage: clipboard | clipboard clear | clipboard zone [NAME W H]"
+            message="Usage: clipboard | clipboard clear | clipboard zone [NAME W H]",
+            message_frames=120,
         )
 
 
